@@ -26,7 +26,7 @@ def test_summarize_transcript_sends_prompt_with_transcript():
     client.chat.completions.create.return_value = _mock_completion("摘要")
 
     with patch("summarizer.OpenAI", return_value=client):
-        summarize_transcript("某段内容XYZ", api_key="sk-test")
+        summarize_transcript("某段内容XYZ", api_key="sk-test", model="gpt-4o-mini")
 
     call = client.chat.completions.create.call_args
     assert call.kwargs["model"] == "gpt-4o-mini"

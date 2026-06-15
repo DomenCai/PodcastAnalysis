@@ -15,6 +15,7 @@ def main():
     parser.add_argument("url", help="小宇宙播客链接")
     parser.add_argument("-o", "--output", default="output", help="输出目录")
     parser.add_argument("--skip-download", action="store_true", help="跳过下载（使用已有音频）")
+    parser.add_argument("--summary", action="store_true", help="生成摘要（默认跳过）")
     args = parser.parse_args()
 
     episode_id = extract_episode_id(args.url)
@@ -58,14 +59,17 @@ def main():
         print(f"   逐字稿已保存到: {transcript_path}")
 
     summary_path = os.path.join(output_dir, "summary.txt")
-    if not LLM_API_KEY:
-        print("❌ 未配置 LLM API Key")
-        sys.exit(1)
-    print("📝 生成摘要...")
-    summary = summarize_transcript(transcript, LLM_BASE_URL, LLM_API_KEY, LLM_MODEL)
-    with open(summary_path, "w", encoding="utf-8") as f:
-        f.write(summary)
-    print(f"   摘要已保存到: {summary_path}")
+    if not args.summary:
+        print("⏭️  跳过摘要生成（使用 --summary 启用）")
+    else:
+        if not LLM_API_KEY:
+            print("❌ 未配置 LLM API Key")
+            sys.exit(1)
+        print("📝 生成摘要...")
+        summary = summarize_transcript(transcript, LLM_BASE_URL, LLM_API_KEY, LLM_MODEL)
+        with open(summary_path, "w", encoding="utf-8") as f:
+            f.write(summary)
+        print(f"   摘要已保存到: {summary_path}")
 
     print("\n✅ 处理完成！")
     print(f"📂 输出目录: {output_dir}")
