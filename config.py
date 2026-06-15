@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 MIMO_API_KEY = os.getenv("MIMO_API_KEY")
-MIMO_BASE_URL = "https://api.xiaomimimo.com/v1"
+MIMO_BASE_URL = "https://token-plan-cn.xiaomimimo.com/v1"
 MIMO_ASR_MODEL = "mimo-v2.5-asr"
 
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")

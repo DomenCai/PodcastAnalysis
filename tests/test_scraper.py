@@ -42,7 +42,7 @@ def _next_data_html(episode: dict) -> str:
 EPISODE_PAYLOAD = {
     "title": "测试标题",
     "description": "测试描述",
-    "media": {"source": "https://audio.example.com/ep.m4a"},
+    "media": {"source": {"mode": "PUBLIC", "url": "https://audio.example.com/ep.m4a"}},
     "duration": 3600,
     "podcast": {"title": "测试播客"},
 }

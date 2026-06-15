@@ -34,7 +34,7 @@ def fetch_episode_info(url: str) -> dict:
             "id": episode_id,
             "title": episode.get("title", ""),
             "description": episode.get("description", ""),
-            "audio_url": episode.get("media", {}).get("source", ""),
+            "audio_url": episode.get("media", {}).get("source", {}).get("url", ""),
             "duration": episode.get("duration", 0),
             "podcast_title": episode.get("podcast", {}).get("title", ""),
         }
