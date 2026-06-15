@@ -16,6 +16,7 @@ def main():
     parser.add_argument("-o", "--output", default="output", help="输出目录")
     parser.add_argument("--skip-download", action="store_true", help="跳过下载（使用已有音频）")
     parser.add_argument("--summary", action="store_true", help="生成摘要（默认跳过）")
+    parser.add_argument("--keep-splits", action="store_true", help="保存切片音频到 split/ 目录")
     args = parser.parse_args()
 
     episode_id = extract_episode_id(args.url)
@@ -53,10 +54,13 @@ def main():
             print("❌ 未配置 MIMO_API_KEY")
             sys.exit(1)
         print("🎙️  语音转文字...")
-        transcript = transcribe_audio(audio_path)
+        split_dir = os.path.join(output_dir, "split") if args.keep_splits else None
+        transcript = transcribe_audio(audio_path, keep_splits_dir=split_dir)
         with open(transcript_path, "w", encoding="utf-8") as f:
             f.write(transcript)
         print(f"   逐字稿已保存到: {transcript_path}")
+        if split_dir:
+            print(f"   切片音频已保存到: {split_dir}")
 
     summary_path = os.path.join(output_dir, "summary.txt")
     if not args.summary:
@@ -66,7 +70,7 @@ def main():
             print("❌ 未配置 LLM API Key")
             sys.exit(1)
         print("📝 生成摘要...")
-        summary = summarize_transcript(transcript, LLM_BASE_URL, LLM_API_KEY, LLM_MODEL)
+        summary = summarize_transcript(transcript, meta=info, api_key=LLM_API_KEY, base_url=LLM_BASE_URL, model=LLM_MODEL)
         with open(summary_path, "w", encoding="utf-8") as f:
             f.write(summary)
         print(f"   摘要已保存到: {summary_path}")
