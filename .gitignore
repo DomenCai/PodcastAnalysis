@@ -1,0 +1,18 @@
+# 环境变量（含密钥，禁止提交）
+.env
+
+# 输出产物
+output/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# 虚拟环境
+.venv/
+venv/
+
+# 系统
+.DS_Store
