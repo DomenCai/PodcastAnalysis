@@ -62,7 +62,7 @@ def main():
         if split_dir:
             print(f"   切片音频已保存到: {split_dir}")
 
-    summary_path = os.path.join(output_dir, "summary.txt")
+    summary_path = os.path.join(output_dir, "summary.md")
     if not args.summary:
         print("⏭️  跳过摘要生成（使用 --summary 启用）")
     else:

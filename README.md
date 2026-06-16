@@ -50,7 +50,7 @@ output/<episode_id>/
 ├── meta.json         # 节目元数据
 ├── audio.m4a         # 原始音频
 ├── transcript.txt    # 逐字稿（带时间戳）
-├── summary.txt       # 摘要（--summary 时生成）
+├── summary.md       # 摘要（--summary 时生成）
 └── split/            # 切片音频（--keep-splits 时保留）
 ```
 
