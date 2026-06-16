@@ -128,7 +128,7 @@ export function Layout({ children, health, healthLoading, healthError }: Props) 
     <div className="app-shell">
       <aside className="app-sidebar">
         <button className="text-left" onClick={() => navigate("/")}>
-          <div className="text-xl font-semibold tracking-normal">PodcastAnalysis</div>
+          <div className="font-serif text-2xl font-medium leading-tight tracking-normal">PodcastAnalysis</div>
           <div className="sidebar-subtitle">播客转录与摘要工具</div>
         </button>
 
@@ -147,12 +147,12 @@ export function Layout({ children, health, healthLoading, healthError }: Props) 
         </div>
       </aside>
 
-      <div className="lg:pl-60">
+      <div className="lg:pl-64">
         <header className="mobile-header">
           <div className="flex flex-col gap-3 px-4 py-4">
             <div className="flex items-start justify-between gap-3">
               <button className="min-w-0 text-left" onClick={() => navigate("/")}>
-                <div className="truncate text-lg font-semibold text-[var(--color-text)]">PodcastAnalysis</div>
+                <div className="truncate font-serif text-xl font-medium text-[var(--color-text)]">PodcastAnalysis</div>
                 <div className="text-sm text-muted">播客转录与摘要工具</div>
               </button>
               <ThemeToggle />
@@ -164,7 +164,7 @@ export function Layout({ children, health, healthLoading, healthError }: Props) 
           </div>
         </header>
 
-        <main className="mx-auto max-w-[1440px] px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
+        <main className="mx-auto max-w-[1180px] px-4 py-7 sm:px-6 lg:px-10 lg:py-12">
           {children}
         </main>
       </div>

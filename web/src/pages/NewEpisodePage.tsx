@@ -62,7 +62,7 @@ function ProgressView({ task, includeSummary }: { task: TaskState | null; includ
         {task?.status === "running" && <Loader2 className="h-5 w-5 animate-spin text-accent" />}
       </div>
 
-      <div className="mt-5 flex flex-wrap items-center gap-2">
+      <div className="mt-6 flex flex-wrap items-center gap-3">
         {stages.map(({ key, icon: Icon }, index) => {
           const active = task?.stage === key;
           const done = task?.status === "done" || currentIndex > index;
@@ -228,14 +228,14 @@ export function NewEpisodePage({ health }: { health: Health | null }) {
   const submitDisabled = submitting || blockers.length > 0 || taskRunning;
 
   return (
-    <section className="space-y-5">
+    <section className="space-y-7">
       <div className="page-header">
         <h1 className="page-title">新建处理</h1>
         <p className="page-subtitle mt-1 text-sm">粘贴小宇宙节目链接，生成本地音频、逐字稿和可选摘要。</p>
       </div>
 
       <div className="panel">
-        <form className="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_auto_auto]" onSubmit={handleSubmit}>
+        <form className="grid gap-4 lg:grid-cols-[minmax(260px,1fr)_auto_auto]" onSubmit={handleSubmit}>
           <label className="min-w-0">
             <span className="field-label">小宇宙节目链接</span>
             <div className="relative">
@@ -268,7 +268,7 @@ export function NewEpisodePage({ health }: { health: Health | null }) {
           </button>
         </form>
 
-        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        <div className="mt-5 grid gap-3 lg:grid-cols-2">
           {llmMissing && <Notice tone="warn">缺少 LLM_API_KEY，摘要选项不可用，转录仍可继续。</Notice>}
           {blockers.length > 0 && <Notice tone="error">{blockers.join("、")}</Notice>}
           {message && <Notice tone="neutral">{message}</Notice>}

@@ -5,11 +5,20 @@ export default {
     extend: {
       fontFamily: {
         sans: [
-          "Inter",
+          "Soehne",
+          "Avenir Next",
+          "Helvetica Neue",
           "-apple-system",
           "BlinkMacSystemFont",
           "Segoe UI",
+          "Arial",
           "sans-serif"
+        ],
+        serif: [
+          "Tiempos Text",
+          "Iowan Old Style",
+          "Times New Roman",
+          "serif"
         ]
       }
     }

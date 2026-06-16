@@ -180,8 +180,8 @@ export function EpisodeDetailPage({ id }: { id: string }) {
   const description = getDescription(episode);
 
   return (
-    <article className="space-y-5">
-      <div className="page-header flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+    <article className="space-y-7">
+      <div className="page-header flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0 xl:flex-1">
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <button className="secondary-button" onClick={() => navigate("/")}>
@@ -203,7 +203,7 @@ export function EpisodeDetailPage({ id }: { id: string }) {
             )}
           </div>
           <div className="text-sm text-muted">{episode.podcast_title || "未知播客"}</div>
-          <h1 className="mt-2 max-w-5xl text-2xl font-semibold leading-snug tracking-normal text-[var(--color-text)]">
+          <h1 className="mt-3 max-w-5xl font-serif text-3xl font-medium leading-tight tracking-normal text-[var(--color-text)] md:text-4xl">
             {episode.title || episode.id}
           </h1>
           {description && <EpisodeDescription text={description} />}
@@ -225,7 +225,7 @@ export function EpisodeDetailPage({ id }: { id: string }) {
         </section>
       </div>
 
-      <section className="space-y-4">
+      <section className="space-y-5">
         <div className="tab-list" role="tablist" aria-label="节目详情内容">
           <TabButton active={activeTab === "transcript"} onClick={() => setActiveTab("transcript")}>
             音频与逐字稿
@@ -236,7 +236,7 @@ export function EpisodeDetailPage({ id }: { id: string }) {
         </div>
 
         {activeTab === "transcript" ? (
-          <div className="min-w-0 space-y-5" role="tabpanel">
+          <div className="min-w-0 space-y-6" role="tabpanel">
             <section className="space-y-3">
               <h2 className="section-title">音频</h2>
               <WaveformPlayer episodeId={id} hasAudio={episode.has_audio} />

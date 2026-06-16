@@ -10,7 +10,7 @@ import { LoadingState } from "../components/LoadingState";
 function EpisodeCard({ episode }: { episode: EpisodeListItem }) {
   return (
     <button
-      className="card-button group grid w-full gap-4 p-4 md:grid-cols-[minmax(0,1fr)_auto]"
+      className="card-button group grid w-full gap-5 p-5 md:grid-cols-[minmax(0,1fr)_auto]"
       onClick={() => navigate(`/episodes/${episode.id}`)}
     >
       <div className="min-w-0 space-y-2">
@@ -18,7 +18,7 @@ function EpisodeCard({ episode }: { episode: EpisodeListItem }) {
           <ListMusic className="h-4 w-4 shrink-0 text-faint" />
           <span className="truncate">{episode.podcast_title || "未知播客"}</span>
         </div>
-        <h2 className="item-title line-clamp-2 text-base font-semibold leading-snug">
+        <h2 className="item-title line-clamp-2 text-lg leading-snug">
           {episode.title || episode.id}
         </h2>
       </div>
@@ -70,8 +70,8 @@ export function HomePage() {
   }, []);
 
   return (
-    <section className="space-y-5">
-      <div className="page-header flex flex-wrap items-end justify-between gap-3">
+    <section className="space-y-7">
+      <div className="page-header flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="page-title">节目库</h1>
           <p className="page-subtitle mt-1 text-sm">本地已处理节目：{episodes.length} 集</p>
@@ -86,13 +86,13 @@ export function HomePage() {
       {error && <ErrorState message={error} />}
 
       {!loading && !error && episodes.length === 0 && (
-        <div className="panel p-8 text-center text-sm text-muted">
+        <div className="panel p-10 text-center text-sm text-muted">
           暂无已处理节目
         </div>
       )}
 
       {!loading && !error && episodes.length > 0 && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {episodes.map((episode) => (
             <EpisodeCard key={episode.id} episode={episode} />
           ))}
