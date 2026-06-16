@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from scraper import extract_episode_id, fetch_episode_info
+from server.scraper import extract_episode_id, fetch_episode_info
 
 
 def test_extract_episode_id_normal():
@@ -59,7 +59,7 @@ META_HTML = """
 
 def test_fetch_episode_info_from_next_data():
     html = _next_data_html(EPISODE_PAYLOAD)
-    with patch("scraper.requests.get", return_value=_make_response(html)):
+    with patch("server.scraper.requests.get", return_value=_make_response(html)):
         info = fetch_episode_info(
             "https://www.xiaoyuzhoufm.com/episode/6a2d134143a22a6955830bfe"
         )
@@ -71,7 +71,7 @@ def test_fetch_episode_info_from_next_data():
 
 
 def test_fetch_episode_info_fallback_to_meta():
-    with patch("scraper.requests.get", return_value=_make_response(META_HTML)):
+    with patch("server.scraper.requests.get", return_value=_make_response(META_HTML)):
         info = fetch_episode_info(
             "https://www.xiaoyuzhoufm.com/episode/6a2d134143a22a6955830bfe"
         )

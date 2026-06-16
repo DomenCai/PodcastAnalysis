@@ -1,6 +1,6 @@
 from openai import OpenAI
 
-from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+from server.config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 
 SYSTEM_PROMPT = """你是一个播客内容分析助手，服务对象每天有大量 1 小时左右的播客要过，没时间全听。你的任务是让他不听原片也能搞清楚：这期讲了什么、值不值得深入，值得的还能直接拿走精华。
 

@@ -1,16 +1,23 @@
+import importlib
+
 from fastapi.testclient import TestClient
 
-import server
+server_module = importlib.import_module("server.app")
 
 
 def _reset_tasks():
-    with server._tasks_lock:
-        server._tasks.clear()
-        server._running_task_id = None
+    with server_module._tasks_lock:
+        server_module._tasks.clear()
+        server_module._running_task_id = None
+
+
+def test_server_package_exports_asgi_app():
+    package = importlib.import_module("server")
+    assert package.app is server_module.app
 
 
 def test_list_episodes_skips_corrupt_meta(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "OUTPUT_ROOT", tmp_path)
+    monkeypatch.setattr(server_module, "OUTPUT_ROOT", tmp_path)
     _reset_tasks()
 
     good = tmp_path / "6a2d134143a22a6955830bfe"
@@ -29,7 +36,7 @@ def test_list_episodes_skips_corrupt_meta(tmp_path, monkeypatch):
     invalid_name.mkdir()
     (invalid_name / "meta.json").write_text('{"title":"bad"}', encoding="utf-8")
 
-    response = TestClient(server.app).get("/api/episodes")
+    response = TestClient(server_module.app).get("/api/episodes")
 
     assert response.status_code == 200
     assert response.json() == [
@@ -45,9 +52,9 @@ def test_list_episodes_skips_corrupt_meta(tmp_path, monkeypatch):
 
 
 def test_episode_id_validation_and_missing_summary(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "OUTPUT_ROOT", tmp_path)
+    monkeypatch.setattr(server_module, "OUTPUT_ROOT", tmp_path)
     _reset_tasks()
-    client = TestClient(server.app)
+    client = TestClient(server_module.app)
 
     invalid = client.get("/api/episodes/not-valid")
     assert invalid.status_code == 400
@@ -57,22 +64,22 @@ def test_episode_id_validation_and_missing_summary(tmp_path, monkeypatch):
 
 
 def test_post_episode_invalid_url_returns_400(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "OUTPUT_ROOT", tmp_path)
+    monkeypatch.setattr(server_module, "OUTPUT_ROOT", tmp_path)
     _reset_tasks()
 
-    response = TestClient(server.app).post("/api/episodes", json={"url": "https://example.com"})
+    response = TestClient(server_module.app).post("/api/episodes", json={"url": "https://example.com"})
 
     assert response.status_code == 400
 
 
 def test_post_episode_running_task_returns_409(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "OUTPUT_ROOT", tmp_path)
+    monkeypatch.setattr(server_module, "OUTPUT_ROOT", tmp_path)
     _reset_tasks()
 
     task_id = "a" * 32
-    with server._tasks_lock:
-        server._running_task_id = task_id
-        server._tasks[task_id] = server.TaskState(
+    with server_module._tasks_lock:
+        server_module._running_task_id = task_id
+        server_module._tasks[task_id] = server_module.TaskState(
             task_id=task_id,
             episode_id="6a2d134143a22a6955830bfe",
             stage="transcribing",
@@ -82,7 +89,7 @@ def test_post_episode_running_task_returns_409(tmp_path, monkeypatch):
             error=None,
         )
 
-    response = TestClient(server.app).post(
+    response = TestClient(server_module.app).post(
         "/api/episodes",
         json={"url": "https://www.xiaoyuzhoufm.com/episode/6a2d134143a22a6955830bfe"},
     )
@@ -91,10 +98,10 @@ def test_post_episode_running_task_returns_409(tmp_path, monkeypatch):
 
 
 def test_get_task_invalid_id_returns_400(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "OUTPUT_ROOT", tmp_path)
+    monkeypatch.setattr(server_module, "OUTPUT_ROOT", tmp_path)
     _reset_tasks()
 
-    response = TestClient(server.app).get("/api/tasks/not-a-task")
+    response = TestClient(server_module.app).get("/api/tasks/not-a-task")
 
     assert response.status_code == 400
 
@@ -108,9 +115,9 @@ def test_static_dist_serves_index_assets_and_spa_fallback(tmp_path, monkeypatch)
         encoding="utf-8",
     )
     (assets / "app.js").write_text('console.log("ok");', encoding="utf-8")
-    monkeypatch.setattr(server, "WEB_DIST", dist)
+    monkeypatch.setattr(server_module, "WEB_DIST", dist)
 
-    client = TestClient(server.app)
+    client = TestClient(server_module.app)
 
     index = client.get("/")
     asset = client.get("/assets/app.js")

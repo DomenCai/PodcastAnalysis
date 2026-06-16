@@ -2,11 +2,14 @@ import argparse
 import os
 import sys
 
-from stt import transcribe_file as transcribe_audio_file
+from server.stt import transcribe_file as transcribe_audio_file
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="直接转录本地音频文件（不切片）")
+    parser = argparse.ArgumentParser(
+        prog="python -m cli.transcribe_file",
+        description="直接转录本地音频文件（不切片）",
+    )
     parser.add_argument("audio", help="输入音频文件路径")
     parser.add_argument(
         "-o",

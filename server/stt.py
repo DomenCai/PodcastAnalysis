@@ -9,8 +9,8 @@ from pathlib import Path
 
 from openai import OpenAI
 
-from audio_utils import convert_and_split, hms, mmss
-from config import MIMO_API_KEY, MIMO_BASE_URL, MIMO_ASR_MODEL, STT_MAX_WORKERS
+from server.audio_utils import convert_and_split, hms, mmss
+from server.config import MIMO_API_KEY, MIMO_BASE_URL, MIMO_ASR_MODEL, STT_MAX_WORKERS
 
 
 def _dedup_text(text: str, min_len: int = 15) -> str:

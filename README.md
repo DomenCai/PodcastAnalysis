@@ -28,19 +28,19 @@ cp .env.example .env
 
 ```bash
 # 基本用法：抓取 + 下载 + 转录
-uv run python main.py "https://www.xiaoyuzhoufm.com/episode/<id>"
+uv run python -m cli.analyze "https://www.xiaoyuzhoufm.com/episode/<id>"
 
 # 跳过下载（已有音频时）
-uv run python main.py "https://www.xiaoyuzhoufm.com/episode/<id>" --skip-download
+uv run python -m cli.analyze "https://www.xiaoyuzhoufm.com/episode/<id>" --skip-download
 
 # 生成摘要
-uv run python main.py "https://www.xiaoyuzhoufm.com/episode/<id>" --summary
+uv run python -m cli.analyze "https://www.xiaoyuzhoufm.com/episode/<id>" --summary
 
 # 保存切片音频（调试用）
-uv run python main.py "https://www.xiaoyuzhoufm.com/episode/<id>" --keep-splits
+uv run python -m cli.analyze "https://www.xiaoyuzhoufm.com/episode/<id>" --keep-splits
 
 # 指定输出目录
-uv run python main.py "https://www.xiaoyuzhoufm.com/episode/<id>" -o my_output
+uv run python -m cli.analyze "https://www.xiaoyuzhoufm.com/episode/<id>" -o my_output
 ```
 
 ## Web 界面
@@ -59,13 +59,13 @@ cd ..
 之后在仓库根目录一条命令启动本机 Web 服务：
 
 ```bash
-uv run python server.py
+uv run python -m server.app
 ```
 
 该命令默认监听 `127.0.0.1:8000`，并自动打开浏览器。也可以用 uvicorn 启动：
 
 ```bash
-uv run uvicorn server:app
+uv run uvicorn server.app:app
 ```
 
 此方式同样默认服务 Web 界面和 `/api/*`，浏览器手动打开 `http://127.0.0.1:8000` 即可。

@@ -15,9 +15,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel
 
-from config import LLM_API_KEY, MIMO_API_KEY
-from pipeline import run_pipeline
-from scraper import extract_episode_id
+from server.config import LLM_API_KEY, MIMO_API_KEY
+from server.pipeline import run_pipeline
+from server.scraper import extract_episode_id
 
 OUTPUT_ROOT = Path("output")
 WEB_DIST = Path("web/dist")
@@ -268,4 +268,4 @@ if __name__ == "__main__":
     opener = threading.Timer(1.0, webbrowser.open, args=(url,))
     opener.daemon = True
     opener.start()
-    uvicorn.run("server:app", host="127.0.0.1", port=port)
+    uvicorn.run("server.app:app", host="127.0.0.1", port=port)

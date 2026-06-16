@@ -1,6 +1,6 @@
 from unittest.mock import patch, MagicMock
 
-from audio_utils import (
+from server.audio_utils import (
     probe_duration,
     detect_silences,
     compute_cut_points,
@@ -16,14 +16,14 @@ from audio_utils import (
 def test_probe_duration():
     mock = MagicMock()
     mock.stdout = "  123.456\n"
-    with patch("audio_utils.subprocess.run", return_value=mock):
+    with patch("server.audio_utils.subprocess.run", return_value=mock):
         assert probe_duration("/fake/a.m4a") == 123.456
 
 
 def test_probe_duration_calls_ffprobe():
     mock = MagicMock()
     mock.stdout = "10.0\n"
-    with patch("audio_utils.subprocess.run", return_value=mock) as run:
+    with patch("server.audio_utils.subprocess.run", return_value=mock) as run:
         probe_duration("/fake/a.m4a")
     cmd = run.call_args.args[0]
     assert cmd[0] == "ffprobe"
@@ -38,7 +38,7 @@ def test_detect_silences_parses_log():
         "[silencedetect] silence_start: 102.0\n"
         "[silencedetect] silence_end: 102.6 | silence_duration: 0.6\n"
     )
-    with patch("audio_utils.subprocess.run", return_value=fake_result):
+    with patch("server.audio_utils.subprocess.run", return_value=fake_result):
         silences = detect_silences("/fake/a.m4a")
     assert silences == [(5.0, 5.5), (102.0, 102.6)]
 
@@ -46,7 +46,7 @@ def test_detect_silences_parses_log():
 def test_detect_silences_empty():
     fake_result = MagicMock()
     fake_result.stderr = "no silence detected\n"
-    with patch("audio_utils.subprocess.run", return_value=fake_result):
+    with patch("server.audio_utils.subprocess.run", return_value=fake_result):
         assert detect_silences("/fake/a.m4a") == []
 
 
@@ -95,7 +95,7 @@ def test_hms():
 
 
 def test_extract_segment_uses_t_duration():
-    with patch("audio_utils.subprocess.run") as run:
+    with patch("server.audio_utils.subprocess.run") as run:
         extract_segment("/in.m4a", 100.0, 250.0, "/out.mp3")
     cmd = run.call_args.args[0]
     assert "-ss" in cmd and "100.0" in cmd
@@ -105,8 +105,8 @@ def test_extract_segment_uses_t_duration():
 
 def test_convert_and_split_short_audio_single_segment(tmp_path):
     fake_input = "/fake/short.m4a"
-    with patch("audio_utils.probe_duration", return_value=50.0), \
-         patch("audio_utils.extract_segment", side_effect=lambda i, s, e, o: o):
+    with patch("server.audio_utils.probe_duration", return_value=50.0), \
+         patch("server.audio_utils.extract_segment", side_effect=lambda i, s, e, o: o):
         segments = convert_and_split(fake_input, str(tmp_path))
     assert len(segments) == 1
     path, start, end = segments[0]
@@ -117,9 +117,9 @@ def test_convert_and_split_short_audio_single_segment(tmp_path):
 def test_convert_and_split_uses_silence_detection(tmp_path):
     fake_input = "/fake/long.m4a"
     silences = [(48.0, 49.0), (96.0, 97.0)]
-    with patch("audio_utils.probe_duration", return_value=200.0), \
-         patch("audio_utils.detect_silences", return_value=silences), \
-         patch("audio_utils.extract_segment", side_effect=lambda i, s, e, o: o):
+    with patch("server.audio_utils.probe_duration", return_value=200.0), \
+         patch("server.audio_utils.detect_silences", return_value=silences), \
+         patch("server.audio_utils.extract_segment", side_effect=lambda i, s, e, o: o):
         segments = convert_and_split(fake_input, str(tmp_path))
     starts = [s for _, s, _ in segments]
     assert starts[0] == 0.0
@@ -128,9 +128,9 @@ def test_convert_and_split_uses_silence_detection(tmp_path):
 
 def test_convert_and_split_no_silence_hard_cuts(tmp_path):
     fake_input = "/fake/long.m4a"
-    with patch("audio_utils.probe_duration", return_value=200.0), \
-         patch("audio_utils.detect_silences", return_value=[]), \
-         patch("audio_utils.extract_segment", side_effect=lambda i, s, e, o: o):
+    with patch("server.audio_utils.probe_duration", return_value=200.0), \
+         patch("server.audio_utils.detect_silences", return_value=[]), \
+         patch("server.audio_utils.extract_segment", side_effect=lambda i, s, e, o: o):
         segments = convert_and_split(fake_input, str(tmp_path))
     assert segments[0] == (str(tmp_path / "segment_0000.mp3"), 0.0, SEGMENT_MAX)
     assert segments[1] == (str(tmp_path / "segment_0001.mp3"), SEGMENT_MAX, SEGMENT_MAX * 2)
@@ -141,9 +141,9 @@ def test_convert_and_split_each_segment_within_max(tmp_path):
     assert SEGMENT_TARGET == 45
     assert SEGMENT_MAX == 60
     fake_input = "/fake/x.m4a"
-    with patch("audio_utils.probe_duration", return_value=600.0), \
-         patch("audio_utils.detect_silences", return_value=[]), \
-         patch("audio_utils.extract_segment", side_effect=lambda i, s, e, o: o):
+    with patch("server.audio_utils.probe_duration", return_value=600.0), \
+         patch("server.audio_utils.detect_silences", return_value=[]), \
+         patch("server.audio_utils.extract_segment", side_effect=lambda i, s, e, o: o):
         segments = convert_and_split(fake_input, str(tmp_path))
     for _, start, end in segments:
         assert end - start <= SEGMENT_MAX

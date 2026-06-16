@@ -1,7 +1,7 @@
 import argparse
 import sys
 
-from pipeline import run_pipeline
+from server.pipeline import run_pipeline
 
 
 def _print_event(stage: str, done: int | None, total: int | None) -> None:
@@ -22,7 +22,10 @@ def _print_event(stage: str, done: int | None, total: int | None) -> None:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="小宇宙播客分析工具")
+    parser = argparse.ArgumentParser(
+        prog="python -m cli.analyze",
+        description="小宇宙播客分析工具",
+    )
     parser.add_argument("url", help="小宇宙播客链接")
     parser.add_argument("-o", "--output", default="output", help="输出目录")
     parser.add_argument("--skip-download", action="store_true", help="跳过下载（使用已有音频）")

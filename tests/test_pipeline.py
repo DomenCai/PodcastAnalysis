@@ -1,6 +1,6 @@
 import json
 
-from pipeline import run_pipeline
+from server.pipeline import run_pipeline
 
 
 def test_run_pipeline_reuses_existing_steps(tmp_path, monkeypatch):
@@ -10,9 +10,9 @@ def test_run_pipeline_reuses_existing_steps(tmp_path, monkeypatch):
     (output_dir / "audio.m4a").write_bytes(b"existing")
 
     events = []
-    monkeypatch.setattr("pipeline.MIMO_API_KEY", "mimo-key")
+    monkeypatch.setattr("server.pipeline.MIMO_API_KEY", "mimo-key")
     monkeypatch.setattr(
-        "pipeline.fetch_episode_info",
+        "server.pipeline.fetch_episode_info",
         lambda url: {
             "id": episode_id,
             "title": "标题",
@@ -22,7 +22,7 @@ def test_run_pipeline_reuses_existing_steps(tmp_path, monkeypatch):
         },
     )
     monkeypatch.setattr(
-        "pipeline.download_audio",
+        "server.pipeline.download_audio",
         lambda url, path: (_ for _ in ()).throw(AssertionError("should not download")),
     )
 
@@ -31,7 +31,7 @@ def test_run_pipeline_reuses_existing_steps(tmp_path, monkeypatch):
         on_progress("transcribing", 2, 2)
         return "逐字稿"
 
-    monkeypatch.setattr("pipeline.transcribe_audio", fake_transcribe)
+    monkeypatch.setattr("server.pipeline.transcribe_audio", fake_transcribe)
 
     result = run_pipeline(
         f"https://www.xiaoyuzhoufm.com/episode/{episode_id}",
@@ -51,7 +51,7 @@ def test_run_pipeline_reuses_existing_steps(tmp_path, monkeypatch):
 def test_run_pipeline_skip_download_requires_existing_audio(tmp_path, monkeypatch):
     episode_id = "6a2d134143a22a6955830bfe"
     monkeypatch.setattr(
-        "pipeline.fetch_episode_info",
+        "server.pipeline.fetch_episode_info",
         lambda url: {"id": episode_id, "audio_url": "https://audio.example.com/a.m4a"},
     )
 

@@ -2,11 +2,14 @@ import argparse
 import os
 import sys
 
-from audio_utils import SEGMENT_MAX, SEGMENT_TARGET, convert_and_split, hms, mmss
+from server.audio_utils import SEGMENT_MAX, SEGMENT_TARGET, convert_and_split, hms, mmss
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="按静音点切分本地音频")
+    parser = argparse.ArgumentParser(
+        prog="python -m cli.split_audio",
+        description="按静音点切分本地音频",
+    )
     parser.add_argument("audio", help="输入音频文件路径")
     parser.add_argument(
         "-o",
