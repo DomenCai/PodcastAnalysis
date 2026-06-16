@@ -43,6 +43,33 @@ uv run python main.py "https://www.xiaoyuzhoufm.com/episode/<id>" --keep-splits
 uv run python main.py "https://www.xiaoyuzhoufm.com/episode/<id>" -o my_output
 ```
 
+## Web 界面
+
+Web 界面仍复用同一套 Python 处理流程，运行前需要完成上面的 Python / uv / ffmpeg / ffprobe / `.env` 配置。
+
+首次使用或前端改动后，先构建前端：
+
+```bash
+cd web
+npm install
+npm run build
+cd ..
+```
+
+之后在仓库根目录一条命令启动本机 Web 服务：
+
+```bash
+uv run python server.py
+```
+
+该命令默认监听 `127.0.0.1:8000`，并自动打开浏览器。也可以用 uvicorn 启动：
+
+```bash
+uv run uvicorn server:app
+```
+
+此方式同样默认服务 Web 界面和 `/api/*`，浏览器手动打开 `http://127.0.0.1:8000` 即可。
+
 ## 输出结构
 
 ```

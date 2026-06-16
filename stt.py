@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import tempfile
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -92,6 +93,7 @@ def transcribe_audio(
     language: str = "zh",
     max_workers: int = STT_MAX_WORKERS,
     keep_splits_dir: str | None = None,
+    on_progress: Callable[[str, int, int], None] | None = None,
 ) -> str:
     api_key = api_key or MIMO_API_KEY
     if not api_key:
@@ -101,10 +103,14 @@ def transcribe_audio(
 
     with tempfile.TemporaryDirectory() as tmp:
         def _split_progress(done: int, total: int) -> None:
-            print(f"\r   切片进度: {done}/{total}", end="", flush=True)
+            if on_progress:
+                on_progress("splitting", done, total)
+            else:
+                print(f"\r   切片进度: {done}/{total}", end="", flush=True)
 
         segments = convert_and_split(audio_path, tmp, on_progress=_split_progress)
-        print()
+        if not on_progress:
+            print()
 
         if keep_splits_dir:
             os.makedirs(keep_splits_dir, exist_ok=True)
@@ -123,8 +129,12 @@ def transcribe_audio(
             for done, fut in enumerate(as_completed(futures), 1):
                 i, start = futures[fut]
                 results[i] = (start, fut.result())
-                print(f"\r   转录进度: {done}/{total}", end="", flush=True)
-            print()
+                if on_progress:
+                    on_progress("transcribing", done, total)
+                else:
+                    print(f"\r   转录进度: {done}/{total}", end="", flush=True)
+            if not on_progress:
+                print()
 
         parts = [f"[{hms(start)}] {text}" for start, text in results]
         return "\n\n".join(parts)
