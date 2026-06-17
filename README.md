@@ -103,6 +103,8 @@ output/<episode_id>/
 | `LLM_API_KEY` | 摘要时 | LLM API Key |
 | `LLM_MODEL` | 否 | 模型名，默认 `gpt-4o-mini` |
 | `STT_MAX_WORKERS` | 否 | 转录并发数，默认 `4` |
+| `STT_REQUESTS_PER_MINUTE` | 否 | MiMo 转录请求限速，默认 `90` |
+| `STT_RATE_LIMIT_RETRIES` | 否 | 429 限流重试次数，默认 `2` |
 
 ## 测试
 

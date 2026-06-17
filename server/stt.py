@@ -3,6 +3,8 @@ import os
 import re
 import shutil
 import tempfile
+import threading
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -10,7 +12,37 @@ from pathlib import Path
 from openai import OpenAI
 
 from server.audio_utils import convert_and_split, hms, mmss
-from server.config import MIMO_API_KEY, MIMO_BASE_URL, MIMO_ASR_MODEL, STT_MAX_WORKERS
+from server.config import (
+    MIMO_API_KEY,
+    MIMO_BASE_URL,
+    MIMO_ASR_MODEL,
+    STT_MAX_WORKERS,
+    STT_RATE_LIMIT_RETRIES,
+    STT_REQUESTS_PER_MINUTE,
+)
+
+
+class _RequestRateLimiter:
+    def __init__(
+        self,
+        requests_per_minute: int,
+        monotonic: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
+        self._interval = 60.0 / requests_per_minute
+        self._monotonic = monotonic
+        self._sleep = sleep
+        self._lock = threading.Lock()
+        self._next_at = 0.0
+
+    def acquire(self) -> None:
+        with self._lock:
+            now = self._monotonic()
+            scheduled_at = max(now, self._next_at)
+            self._next_at = scheduled_at + self._interval
+        wait = scheduled_at - now
+        if wait > 0:
+            self._sleep(wait)
 
 
 def _dedup_text(text: str, min_len: int = 15) -> str:
@@ -70,6 +102,48 @@ def transcribe_segment(
     return _dedup_text(completion.choices[0].message.content)
 
 
+def _is_rate_limit_error(exc: Exception) -> bool:
+    status_code = getattr(exc, "status_code", None)
+    response = getattr(exc, "response", None)
+    response_status = getattr(response, "status_code", None)
+    return status_code == 429 or response_status == 429
+
+
+def _retry_after_seconds(exc: Exception) -> float | None:
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None) or getattr(exc, "headers", None)
+    if not headers:
+        return None
+    value = headers.get("retry-after") or headers.get("Retry-After")
+    if not value:
+        return None
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        return None
+
+
+def _transcribe_segment_with_rate_limit(
+    client: OpenAI,
+    segment_path: str,
+    model: str,
+    language: str,
+    rate_limiter: _RequestRateLimiter | None,
+    max_retries: int,
+) -> str:
+    attempts = 0
+    while True:
+        if rate_limiter:
+            rate_limiter.acquire()
+        try:
+            return transcribe_segment(client, segment_path, model, language)
+        except Exception as exc:
+            if not _is_rate_limit_error(exc) or attempts >= max_retries:
+                raise
+            attempts += 1
+            time.sleep(_retry_after_seconds(exc) or 60.0)
+
+
 def transcribe_file(
     audio_path: str,
     api_key: str | None = None,
@@ -92,6 +166,8 @@ def transcribe_audio(
     model: str = MIMO_ASR_MODEL,
     language: str = "zh",
     max_workers: int = STT_MAX_WORKERS,
+    requests_per_minute: int = STT_REQUESTS_PER_MINUTE,
+    rate_limit_retries: int = STT_RATE_LIMIT_RETRIES,
     keep_splits_dir: str | None = None,
     on_progress: Callable[[str, int, int], None] | None = None,
 ) -> str:
@@ -119,10 +195,23 @@ def transcribe_audio(
                 shutil.copy2(seg_path, dst)
 
         total = len(segments)
+        rate_limiter = (
+            _RequestRateLimiter(requests_per_minute)
+            if requests_per_minute > 0
+            else None
+        )
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             futures = {}
             for i, (seg_path, start, end) in enumerate(segments):
-                fut = pool.submit(transcribe_segment, client, seg_path, model, language)
+                fut = pool.submit(
+                    _transcribe_segment_with_rate_limit,
+                    client,
+                    seg_path,
+                    model,
+                    language,
+                    rate_limiter,
+                    rate_limit_retries,
+                )
                 futures[fut] = (i, start)
 
             results: list[tuple[float, str] | None] = [None] * total

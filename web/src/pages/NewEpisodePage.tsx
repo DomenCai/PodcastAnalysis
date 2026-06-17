@@ -90,9 +90,9 @@ function ProgressView({
                 <div className="min-w-0">
                   <div className={active || done || isFailed ? "timeline-title" : "timeline-title timeline-title-idle"}>
                     {stageLabel(key)}
+                    {detail && <span className="timeline-progress">{detail}</span>}
                     {failedProgress}
                   </div>
-                  {detail && <div className="timeline-detail">{detail}</div>}
                   {isFailed && (
                     <div className="notice chip-danger mt-2 flex-col items-start gap-3">
                       <div className="flex items-start gap-2">

@@ -1014,7 +1014,7 @@
   }
 
   .timeline-title {
-    @apply text-sm font-medium;
+    @apply flex min-h-7 flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-medium;
     color: var(--color-text);
   }
 
@@ -1022,8 +1022,8 @@
     color: var(--color-faint);
   }
 
-  .timeline-detail {
-    @apply mt-0.5 text-sm;
+  .timeline-progress {
+    @apply font-normal tabular-nums;
     color: var(--color-muted);
   }
 

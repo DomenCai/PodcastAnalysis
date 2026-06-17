@@ -43,7 +43,7 @@ def test_transcribe_audio_single_segment_has_timestamp():
     with patch("server.stt.OpenAI", return_value=client), \
          patch("server.stt.convert_and_split", return_value=segments), \
          patch("server.stt._audio_to_data_url", return_value="data:audio/mpeg;base64,AAAA"):
-        result = transcribe_audio("/fake/a.m4a", api_key="k")
+        result = transcribe_audio("/fake/a.m4a", api_key="k", requests_per_minute=0)
 
     assert result.startswith("[00:00:00]")
     assert "单段文本" in result
@@ -61,7 +61,7 @@ def test_transcribe_audio_multi_segment_timestamps_ordered():
     with patch("server.stt.OpenAI", return_value=client), \
          patch("server.stt.convert_and_split", return_value=segments), \
          patch("server.stt._audio_to_data_url", return_value="data:audio/mpeg;base64,AAAA"):
-        result = transcribe_audio("/fake/a.m4a", api_key="k")
+        result = transcribe_audio("/fake/a.m4a", api_key="k", requests_per_minute=0)
 
     # 时间戳按段顺序，每段标记存在
     assert "[00:00:00]" in result
@@ -84,7 +84,7 @@ def test_transcribe_audio_parallel_invokes_all_segments():
     with patch("server.stt.OpenAI", return_value=client), \
          patch("server.stt.convert_and_split", return_value=segments), \
          patch("server.stt._audio_to_data_url", return_value="data:audio/mpeg;base64,AAAA"):
-        transcribe_audio("/fake/a.m4a", api_key="k", max_workers=4)
+        transcribe_audio("/fake/a.m4a", api_key="k", max_workers=4, requests_per_minute=0)
 
     assert client.chat.completions.create.call_count == 4
 
@@ -107,7 +107,57 @@ def test_transcribe_audio_keep_splits_copies_files(tmp_path):
     with patch("server.stt.OpenAI", return_value=client), \
          patch("server.stt.convert_and_split", return_value=seg_paths), \
          patch("server.stt._audio_to_data_url", return_value="data:audio/mpeg;base64,AAAA"):
-        transcribe_audio("/fake/a.m4a", api_key="k", keep_splits_dir=str(split_dir))
+        transcribe_audio(
+            "/fake/a.m4a",
+            api_key="k",
+            keep_splits_dir=str(split_dir),
+            requests_per_minute=0,
+        )
 
     files = sorted(p.name for p in split_dir.iterdir())
     assert files == ["00000-00045.mp3", "00045-00130.mp3"]
+
+
+def test_request_rate_limiter_spaces_requests():
+    now = [0.0]
+    sleeps: list[float] = []
+
+    def monotonic() -> float:
+        return now[0]
+
+    def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        now[0] += seconds
+
+    limiter = stt._RequestRateLimiter(60, monotonic=monotonic, sleep=sleep)
+
+    limiter.acquire()
+    limiter.acquire()
+    limiter.acquire()
+
+    assert sleeps == [1.0, 1.0]
+
+
+def test_transcribe_segment_retries_rate_limit():
+    client = MagicMock()
+    rate_limit = Exception("rate limited")
+    rate_limit.status_code = 429
+    client.chat.completions.create.side_effect = [
+        rate_limit,
+        _mock_completion("重试成功"),
+    ]
+
+    with patch("server.stt._audio_to_data_url", return_value="data:audio/mpeg;base64,AAAA"), \
+         patch("server.stt.time.sleep") as sleep:
+        result = stt._transcribe_segment_with_rate_limit(
+            client,
+            "/fake/seg.mp3",
+            "mimo-v2.5-asr",
+            "zh",
+            rate_limiter=None,
+            max_retries=1,
+        )
+
+    assert result == "重试成功"
+    sleep.assert_called_once_with(60.0)
+    assert client.chat.completions.create.call_count == 2

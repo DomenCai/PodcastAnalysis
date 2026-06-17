@@ -67,15 +67,13 @@ function MindmapNode({ node, depth }: { node: MindmapNodeType; depth: number }) 
   );
 }
 
-export function SummaryView({ data }: { data: SummaryData }) {
-  const { overview, mindmap, worth_following: worth } = data;
-
+export function SummaryOverviewView({ data }: { data: SummaryData }) {
   return (
     <div className="summary-view">
       <section>
         <h3 className="summary-section-title">这期讲了什么</h3>
         <div className="overview-list">
-          {overview.map((seg, index) => (
+          {data.overview.map((seg, index) => (
             <div key={`${index}-${seg.time}`} className="overview-card">
               <div className="overview-head">
                 <span className="overview-time">{seg.time}</span>
@@ -88,7 +86,15 @@ export function SummaryView({ data }: { data: SummaryData }) {
           ))}
         </div>
       </section>
+    </div>
+  );
+}
 
+export function SummaryExploreView({ data }: { data: SummaryData }) {
+  const { mindmap, worth_following: worth } = data;
+
+  return (
+    <div className="summary-view">
       <section>
         <h3 className="summary-section-title">思维导图</h3>
         {mindmap.note ? (

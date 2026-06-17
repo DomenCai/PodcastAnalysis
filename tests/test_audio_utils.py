@@ -56,25 +56,25 @@ def test_compute_cut_points_short_audio_no_cut():
 def test_compute_cut_points_prefers_longest_long_silence_in_wide_window():
     duration = 120.0
     silences = [
-        (12.0, 13.0),
-        (18.0, 20.0),
-        (24.0, 24.4),
+        (26.0, 27.0),
+        (28.0, 31.0),
+        (44.0, 44.4),
     ]
     cuts = compute_cut_points(duration, silences)
     assert len(cuts) >= 1
-    assert abs(cuts[0] - 19.0) < 0.1
+    assert abs(cuts[0] - 29.5) < 0.1
 
 
 def test_compute_cut_points_falls_back_to_ordinary_silence_in_target_window():
     duration = 120.0
     silences = [
-        (12.0, 12.3),
-        (16.0, 16.7),
-        (24.0, 24.5),
+        (26.0, 26.3),
+        (34.0, 34.6),
+        (43.0, 43.4),
     ]
     cuts = compute_cut_points(duration, silences)
     assert len(cuts) >= 1
-    assert abs(cuts[0] - 16.35) < 0.1
+    assert abs(cuts[0] - 34.3) < 0.1
 
 
 def test_compute_cut_points_hard_cut_when_no_ordinary_silence():
@@ -130,7 +130,7 @@ def test_convert_and_split_uses_silence_detection(tmp_path):
         segments = convert_and_split(fake_input, str(tmp_path))
     starts = [s for _, s, _ in segments]
     assert starts[0] == 0.0
-    assert abs(starts[1] - 12.5) < 0.1
+    assert abs(starts[1] - 32.5) < 0.1
 
 
 def test_convert_and_split_no_silence_hard_cuts(tmp_path):

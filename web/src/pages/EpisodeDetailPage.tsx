@@ -22,7 +22,7 @@ import { formatDuration, getDescription, stageLabel, stageProgressText } from ".
 import type { EpisodeDetail, SummaryData, TaskState } from "../lib/types";
 import { ErrorState } from "../components/ErrorState";
 import { LoadingState } from "../components/LoadingState";
-import { SummaryView } from "../components/SummaryView";
+import { SummaryExploreView, SummaryOverviewView } from "../components/SummaryView";
 import { AudioProgressBar } from "../components/AudioProgressBar";
 import { navigate } from "../lib/routing";
 
@@ -33,7 +33,7 @@ type TranscriptLine = {
 };
 
 type DialogMode = "delete" | "regenerate";
-type DetailTab = "transcript" | "summary";
+type DetailTab = "transcript" | "summary" | "explore";
 
 function timeToSeconds(time: string | null): number | null {
   if (!time) return null;
@@ -356,11 +356,13 @@ export function EpisodeDetailPage({ id }: { id: string }) {
       return;
     }
 
+    const shouldRegenerateTranscript = regenerateTranscript || (regenerateSummary && !episode?.has_transcript);
+
     setRegenerating(true);
     setActionError(null);
     try {
       const result = await regenerateEpisode(id, {
-        transcript: regenerateTranscript,
+        transcript: shouldRegenerateTranscript,
         summary: regenerateSummary
       });
       setPendingTab(regenerateSummary ? "summary" : "transcript");
@@ -368,7 +370,7 @@ export function EpisodeDetailPage({ id }: { id: string }) {
       setTask({
         task_id: result.task_id,
         episode_id: id,
-        stage: regenerateTranscript ? "transcribing" : "summarizing",
+        stage: shouldRegenerateTranscript ? "transcribing" : "summarizing",
         done: null,
         total: null,
         status: "running",
@@ -392,7 +394,7 @@ export function EpisodeDetailPage({ id }: { id: string }) {
 
   const description = getDescription(episode);
   const actionBusy = deleting || regenerating || task?.status === "running";
-  const canRegenerateSummary = episode.has_transcript || regenerateTranscript;
+  const canRegenerateSummary = episode.has_transcript || episode.has_audio || regenerateTranscript;
   const runningTaskProgress = task?.status === "running" ? stageProgressText(task) : null;
 
   return (
@@ -473,9 +475,12 @@ export function EpisodeDetailPage({ id }: { id: string }) {
           <TabButton active={activeTab === "summary"} onClick={() => setActiveTab("summary")}>
             内容摘要
           </TabButton>
+          <TabButton active={activeTab === "explore"} onClick={() => setActiveTab("explore")}>
+            导图追踪
+          </TabButton>
         </div>
 
-        {activeTab === "transcript" ? (
+        {activeTab === "transcript" && (
           <div className="content-panel" role="tabpanel">
             {transcript ? (
               <TranscriptBlock
@@ -488,10 +493,22 @@ export function EpisodeDetailPage({ id }: { id: string }) {
               <div className="empty-panel">未生成逐字稿</div>
             )}
           </div>
-        ) : (
+        )}
+
+        {activeTab === "summary" && (
           <div className="content-panel" role="tabpanel">
             {summary ? (
-              <SummaryView data={summary} />
+              <SummaryOverviewView data={summary} />
+            ) : (
+              <div className="empty-panel">未生成摘要</div>
+            )}
+          </div>
+        )}
+
+        {activeTab === "explore" && (
+          <div className="content-panel" role="tabpanel">
+            {summary ? (
+              <SummaryExploreView data={summary} />
             ) : (
               <div className="empty-panel">未生成摘要</div>
             )}
@@ -606,7 +623,13 @@ export function EpisodeDetailPage({ id }: { id: string }) {
                   type="checkbox"
                   checked={regenerateSummary}
                   disabled={!canRegenerateSummary || regenerating}
-                  onChange={(event) => setRegenerateSummary(event.target.checked)}
+                  onChange={(event) => {
+                    const checked = event.target.checked;
+                    setRegenerateSummary(checked);
+                    if (checked && !episode.has_transcript) {
+                      setRegenerateTranscript(true);
+                    }
+                  }}
                 />
                 <span>摘要</span>
               </label>
