@@ -7,6 +7,8 @@ import {
   Folder,
   KeyRound,
   Loader2,
+  Plus,
+  Podcast,
   PlusSquare,
   Terminal
 } from "lucide-react";
@@ -127,12 +129,22 @@ export function Layout({ children, health, healthLoading, healthError }: Props) 
   return (
     <div className="app-shell">
       <aside className="app-sidebar">
-        <button className="text-left" onClick={() => navigate("/")}>
-          <div className="font-serif text-2xl font-medium leading-tight tracking-normal">PodcastAnalysis</div>
-          <div className="sidebar-subtitle">播客转录与摘要工具</div>
+        <button className="flex items-center gap-3 text-left" onClick={() => navigate("/")}>
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl" style={{ background: "var(--color-primary)", color: "var(--color-on-primary)" }}>
+            <Podcast className="h-5 w-5" />
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate text-lg font-semibold leading-tight">PodcastAnalysis</span>
+            <span className="sidebar-subtitle block">播客分析助手</span>
+          </span>
         </button>
 
-        <nav className="mt-14 space-y-2">
+        <button className="primary-button mt-7 w-full" onClick={() => navigate("/new")}>
+          <Plus className="h-4 w-4" />
+          开始新分析
+        </button>
+
+        <nav className="mt-6 space-y-1">
           <NavLink href="/" icon={<BookOpen className="h-5 w-5" />}>
             节目库
           </NavLink>
@@ -151,9 +163,14 @@ export function Layout({ children, health, healthLoading, healthError }: Props) 
         <header className="mobile-header">
           <div className="flex flex-col gap-3 px-4 py-4">
             <div className="flex items-start justify-between gap-3">
-              <button className="min-w-0 text-left" onClick={() => navigate("/")}>
-                <div className="truncate font-serif text-xl font-medium text-[var(--color-text)]">PodcastAnalysis</div>
-                <div className="text-sm text-muted">播客转录与摘要工具</div>
+              <button className="flex min-w-0 items-center gap-2 text-left" onClick={() => navigate("/")}>
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg" style={{ background: "var(--color-primary)", color: "var(--color-on-primary)" }}>
+                  <Podcast className="h-5 w-5" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-base font-semibold text-[var(--color-text)]">PodcastAnalysis</span>
+                  <span className="block text-xs text-muted">播客分析助手</span>
+                </span>
               </button>
               <ThemeToggle />
             </div>

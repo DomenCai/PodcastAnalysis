@@ -32,10 +32,44 @@ export type TaskState = {
     | "transcribing"
     | "summarizing"
     | "done"
-    | "error"
-    | string;
-  done: number;
-  total: number;
-  status: "running" | "done" | "error" | string;
+    | "error";
+  done: number | null;
+  total: number | null;
+  status: "running" | "done" | "error";
   error: string | null;
+};
+
+export type RegenerateRequest = {
+  transcript: boolean;
+  summary: boolean;
+};
+
+export type SummarySegment = {
+  time: string;
+  title: string | null;
+  text: string;
+};
+
+export type MindmapTag = "概念" | "方法" | "反直觉" | "案例" | "事件" | "人物" | "书";
+
+export type MindmapNode = {
+  text: string;
+  tag: MindmapTag | null;
+  children: MindmapNode[];
+};
+
+export type WorthItem = {
+  type: string;
+  title: string;
+  by: string | null;
+  note: string;
+};
+
+export type SummaryData = {
+  overview: SummarySegment[];
+  mindmap: {
+    note: string | null;
+    nodes: MindmapNode[];
+  };
+  worth_following: WorthItem[];
 };

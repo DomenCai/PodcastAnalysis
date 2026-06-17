@@ -1,4 +1,11 @@
-import type { EpisodeDetail, EpisodeListItem, Health, TaskState } from "./types";
+import type {
+  EpisodeDetail,
+  EpisodeListItem,
+  Health,
+  RegenerateRequest,
+  SummaryData,
+  TaskState
+} from "./types";
 
 export class ApiError extends Error {
   status: number;
@@ -67,14 +74,38 @@ export function getTranscript(id: string): Promise<string | null> {
   return requestText(`/api/episodes/${id}/transcript`);
 }
 
-export function getSummary(id: string): Promise<string | null> {
-  return requestText(`/api/episodes/${id}/summary`);
+export async function getSummary(id: string): Promise<SummaryData | null> {
+  const response = await fetch(`/api/episodes/${id}/summary`);
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new ApiError(response.status, await parseError(response));
+  }
+  return (await response.json()) as SummaryData;
 }
 
 export function createEpisode(url: string, summary: boolean): Promise<{ task_id: string }> {
   return requestJson<{ task_id: string }>("/api/episodes", {
     method: "POST",
     body: JSON.stringify({ url, summary })
+  });
+}
+
+export async function deleteEpisode(id: string): Promise<void> {
+  const response = await fetch(`/api/episodes/${id}`, {
+    method: "DELETE"
+  });
+
+  if (!response.ok) {
+    throw new ApiError(response.status, await parseError(response));
+  }
+}
+
+export function regenerateEpisode(id: string, payload: RegenerateRequest): Promise<{ task_id: string }> {
+  return requestJson<{ task_id: string }>(`/api/episodes/${id}/regenerate`, {
+    method: "POST",
+    body: JSON.stringify(payload)
   });
 }
 

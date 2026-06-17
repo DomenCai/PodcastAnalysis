@@ -4,8 +4,8 @@ import subprocess
 from collections.abc import Callable
 
 SEGMENT_BITRATE = "64k"
-SEGMENT_TARGET = 45
-SEGMENT_MAX = 60
+SEGMENT_TARGET = 10
+SEGMENT_MAX = 20
 SILENCE_NOISE_DB = -30.0
 SILENCE_MIN_DURATION = 0.2
 

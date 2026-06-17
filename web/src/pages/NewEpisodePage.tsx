@@ -7,27 +7,19 @@ import {
   FileText,
   Info,
   Loader2,
+  RotateCcw,
   Scissors,
   Sparkles,
   UploadCloud
 } from "lucide-react";
 import { ApiError, createEpisode, getTask } from "../lib/api";
 import type { Health, TaskState } from "../lib/types";
+import { stageLabel } from "../lib/format";
 import { getBlockingHealthIssues } from "../components/HealthStatus";
 import { navigate } from "../lib/routing";
 
 const EPISODE_URL_RE = /\/episode\/([a-f0-9]+)/;
 const POLL_MS = 1500;
-
-const stageLabels: Record<string, string> = {
-  fetching_info: "获取元数据",
-  downloading: "下载音频",
-  splitting: "切片",
-  transcribing: "转录",
-  summarizing: "摘要",
-  done: "完成",
-  error: "失败"
-};
 
 const baseStages = [
   { key: "fetching_info", icon: Info },
@@ -45,64 +37,100 @@ function orderedStages(includeSummary: boolean, currentStage?: string) {
   return stages;
 }
 
-function ProgressView({ task, includeSummary }: { task: TaskState | null; includeSummary: boolean }) {
+function stageDetail(task: TaskState, key: string): string | null {
+  if (
+    key === "splitting" &&
+    task.stage === "splitting" &&
+    task.done != null &&
+    task.total != null &&
+    task.total > 0
+  ) {
+    return `${task.done}/${task.total} 完成`;
+  }
+  if (
+    key === "transcribing" &&
+    task.stage === "transcribing" &&
+    task.done != null &&
+    task.total != null &&
+    task.total > 0
+  ) {
+    return `${task.done}/${task.total} · ${Math.round((task.done / task.total) * 100)}%`;
+  }
+  return null;
+}
+
+function ProgressView({
+  task,
+  includeSummary,
+  onRetry,
+  retrying
+}: {
+  task: TaskState | null;
+  includeSummary: boolean;
+  onRetry: () => void;
+  retrying: boolean;
+}) {
   const stages = orderedStages(includeSummary, task?.stage);
   const currentIndex = task ? stages.findIndex((stage) => stage.key === task.stage) : -1;
   const failed = task?.status === "error" || task?.stage === "error";
+  const failedIndex = failed && currentIndex >= 0 ? currentIndex : -1;
 
   return (
     <div className="panel">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="section-title">任务进度</h2>
-          <p className="mt-1 text-sm text-muted">
-            {task ? stageLabels[task.stage] || task.stage : "提交后将在这里显示处理进度"}
-          </p>
-        </div>
+        <h2 className="section-title">处理进度</h2>
         {task?.status === "running" && <Loader2 className="h-5 w-5 animate-spin text-accent" />}
       </div>
 
-      <div className="mt-6 flex flex-wrap items-center gap-3">
-        {stages.map(({ key, icon: Icon }, index) => {
-          const active = task?.stage === key;
-          const done = task?.status === "done" || currentIndex > index;
-          return (
-            <div
-              key={key}
-              className={
-                active
-                  ? "progress-stage progress-stage-active"
-                  : done
-                    ? "progress-stage progress-stage-done"
-                    : "progress-stage progress-stage-idle"
-              }
-            >
-              <span
-                className={
-                  done
-                    ? "progress-dot progress-dot-done"
-                    : active
-                      ? "progress-dot progress-dot-active"
-                      : "progress-dot progress-dot-idle"
-                }
-              >
-                {done ? <Check className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
-              </span>
-              <span>{stageLabels[key]}</span>
-            </div>
-          );
-        })}
-      </div>
+      {!task && <p className="mt-2 text-sm text-muted">提交后将在这里显示处理进度。</p>}
 
-      {task && (task.stage === "splitting" || task.stage === "transcribing") && task.total > 0 && (
-        <div className="mt-4 text-sm text-muted">
-          {task.stage === "splitting" ? "当前切片进度" : "当前转录进度"}：{task.done}/{task.total}
-        </div>
-      )}
+      {task && (
+        <div className="timeline">
+          {stages.map(({ key, icon: Icon }, index) => {
+            const allDone = task.status === "done";
+            const isFailed = index === failedIndex;
+            const done = allDone || (currentIndex > index && currentIndex >= 0);
+            const active = !isFailed && !done && task.status === "running" && task.stage === key;
+            const detail = active ? stageDetail(task, key) : null;
+            const failedProgress = isFailed && task.done != null && task.total != null && task.total > 0
+              ? ` (${Math.round((task.done / task.total) * 100)}%)`
+              : "";
 
-      {failed && (
-        <div className="notice chip-danger mt-4">
-          {task?.error || "任务失败，请查看后端日志。已生成的本地产物会保留，可以在当前页重新提交。"}
+            const dotClass = isFailed
+              ? "timeline-dot timeline-dot-error"
+              : done
+                ? "timeline-dot timeline-dot-done"
+                : active
+                  ? "timeline-dot timeline-dot-active"
+                  : "timeline-dot timeline-dot-idle";
+
+            return (
+              <div key={key} className={done ? "timeline-step timeline-step-complete" : "timeline-step"}>
+                <span className={dotClass}>
+                  {done ? <Check className="h-4 w-4" /> : isFailed ? <CircleAlert className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
+                </span>
+                <div className="min-w-0">
+                  <div className={active || done || isFailed ? "timeline-title" : "timeline-title timeline-title-idle"}>
+                    {stageLabel(key)}
+                    {failedProgress}
+                  </div>
+                  {detail && <div className="timeline-detail">{detail}</div>}
+                  {isFailed && (
+                    <div className="notice chip-danger mt-2 flex-col items-start gap-3">
+                      <div className="flex items-start gap-2">
+                        <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span>{task.error || "处理失败，本地已生成的产物会保留。"}</span>
+                      </div>
+                      <button className="secondary-button" onClick={onRetry} disabled={retrying}>
+                        <RotateCcw className="h-4 w-4" />
+                        {retrying ? "重试中" : "重试"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -111,11 +139,7 @@ function ProgressView({ task, includeSummary }: { task: TaskState | null; includ
 
 function Notice({ tone, children }: { tone: "warn" | "error" | "neutral"; children: string }) {
   const className =
-    tone === "error"
-      ? "chip-danger"
-      : tone === "warn"
-        ? "chip-warn"
-        : "chip-neutral";
+    tone === "error" ? "chip-danger" : tone === "warn" ? "chip-warn" : "chip-neutral";
 
   return (
     <div className={`notice ${className}`}>
@@ -179,8 +203,7 @@ export function NewEpisodePage({ health }: { health: Health | null }) {
     };
   }, [taskId]);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function startTask() {
     const trimmedUrl = url.trim();
     setMessage(null);
 
@@ -188,12 +211,10 @@ export function NewEpisodePage({ health }: { health: Health | null }) {
       setMessage("请输入小宇宙节目链接");
       return;
     }
-
     if (!EPISODE_URL_RE.test(trimmedUrl)) {
       setMessage("请输入合法的小宇宙 episode 链接");
       return;
     }
-
     if (blockers.length > 0) {
       setMessage(blockers.join("、"));
       return;
@@ -208,8 +229,8 @@ export function NewEpisodePage({ health }: { health: Health | null }) {
         task_id: result.task_id,
         episode_id: null,
         stage: "fetching_info",
-        done: 0,
-        total: 0,
+        done: null,
+        total: null,
         status: "running",
         error: null
       });
@@ -222,6 +243,11 @@ export function NewEpisodePage({ health }: { health: Health | null }) {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void startTask();
   }
 
   const taskRunning = task?.status === "running";
@@ -275,7 +301,12 @@ export function NewEpisodePage({ health }: { health: Health | null }) {
         </div>
       </div>
 
-      <ProgressView task={task} includeSummary={submittedSummary} />
+      <ProgressView
+        task={task}
+        includeSummary={submittedSummary}
+        onRetry={() => void startTask()}
+        retrying={submitting}
+      />
     </section>
   );
 }

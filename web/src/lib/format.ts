@@ -18,3 +18,16 @@ export function formatDuration(seconds: number | null | undefined): string {
 export function getDescription(meta: { description?: string; shownotes?: string }): string {
   return meta.description?.trim() || meta.shownotes?.trim() || "";
 }
+
+export function stageLabel(stage: string): string {
+  const labels: Record<string, string> = {
+    fetching_info: "获取元数据",
+    downloading: "下载音频",
+    splitting: "切片",
+    transcribing: "转录",
+    summarizing: "摘要",
+    done: "完成",
+    error: "失败"
+  };
+  return labels[stage] || stage;
+}

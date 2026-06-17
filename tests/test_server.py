@@ -106,6 +106,63 @@ def test_get_task_invalid_id_returns_400(tmp_path, monkeypatch):
     assert response.status_code == 400
 
 
+def test_delete_episode_removes_episode_dir(tmp_path, monkeypatch):
+    monkeypatch.setattr(server_module, "OUTPUT_ROOT", tmp_path)
+    _reset_tasks()
+
+    episode = tmp_path / "6a2d134143a22a6955830bfe"
+    episode.mkdir()
+    (episode / "meta.json").write_text('{"title":"标题"}', encoding="utf-8")
+    (episode / "transcript.txt").write_text("逐字稿", encoding="utf-8")
+
+    response = TestClient(server_module.app).delete("/api/episodes/6a2d134143a22a6955830bfe")
+
+    assert response.status_code == 204
+    assert not episode.exists()
+
+
+def test_delete_episode_running_task_returns_409(tmp_path, monkeypatch):
+    monkeypatch.setattr(server_module, "OUTPUT_ROOT", tmp_path)
+    _reset_tasks()
+
+    episode = tmp_path / "6a2d134143a22a6955830bfe"
+    episode.mkdir()
+
+    task_id = "a" * 32
+    with server_module._tasks_lock:
+        server_module._running_task_id = task_id
+        server_module._tasks[task_id] = server_module.TaskState(
+            task_id=task_id,
+            episode_id="6a2d134143a22a6955830bfe",
+            stage="transcribing",
+            done=1,
+            total=2,
+            status="running",
+            error=None,
+        )
+
+    response = TestClient(server_module.app).delete("/api/episodes/6a2d134143a22a6955830bfe")
+
+    assert response.status_code == 409
+    assert episode.exists()
+
+
+def test_regenerate_episode_requires_selection(tmp_path, monkeypatch):
+    monkeypatch.setattr(server_module, "OUTPUT_ROOT", tmp_path)
+    _reset_tasks()
+
+    episode = tmp_path / "6a2d134143a22a6955830bfe"
+    episode.mkdir()
+    (episode / "meta.json").write_text('{"title":"标题"}', encoding="utf-8")
+
+    response = TestClient(server_module.app).post(
+        "/api/episodes/6a2d134143a22a6955830bfe/regenerate",
+        json={"transcript": False, "summary": False},
+    )
+
+    assert response.status_code == 400
+
+
 def test_static_dist_serves_index_assets_and_spa_fallback(tmp_path, monkeypatch):
     dist = tmp_path / "dist"
     assets = dist / "assets"

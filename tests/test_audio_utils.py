@@ -51,7 +51,7 @@ def test_detect_silences_empty():
 
 
 def test_compute_cut_points_short_audio_no_cut():
-    assert compute_cut_points(60.0, []) == []
+    assert compute_cut_points(SEGMENT_MAX, []) == []
 
 
 def test_compute_cut_points_prefers_silence_in_window():
@@ -105,25 +105,25 @@ def test_extract_segment_uses_t_duration():
 
 def test_convert_and_split_short_audio_single_segment(tmp_path):
     fake_input = "/fake/short.m4a"
-    with patch("server.audio_utils.probe_duration", return_value=50.0), \
+    with patch("server.audio_utils.probe_duration", return_value=15.0), \
          patch("server.audio_utils.extract_segment", side_effect=lambda i, s, e, o: o):
         segments = convert_and_split(fake_input, str(tmp_path))
     assert len(segments) == 1
     path, start, end = segments[0]
     assert path == str(tmp_path / "segment_0000.mp3")
-    assert start == 0 and end == 50.0
+    assert start == 0 and end == 15.0
 
 
 def test_convert_and_split_uses_silence_detection(tmp_path):
     fake_input = "/fake/long.m4a"
-    silences = [(48.0, 49.0), (96.0, 97.0)]
+    silences = [(12.0, 14.0), (32.0, 33.0)]
     with patch("server.audio_utils.probe_duration", return_value=200.0), \
          patch("server.audio_utils.detect_silences", return_value=silences), \
          patch("server.audio_utils.extract_segment", side_effect=lambda i, s, e, o: o):
         segments = convert_and_split(fake_input, str(tmp_path))
     starts = [s for _, s, _ in segments]
     assert starts[0] == 0.0
-    assert abs(starts[1] - 48.5) < 0.1
+    assert abs(starts[1] - 13.0) < 0.1
 
 
 def test_convert_and_split_no_silence_hard_cuts(tmp_path):
@@ -138,8 +138,8 @@ def test_convert_and_split_no_silence_hard_cuts(tmp_path):
 
 
 def test_convert_and_split_each_segment_within_max(tmp_path):
-    assert SEGMENT_TARGET == 45
-    assert SEGMENT_MAX == 60
+    assert SEGMENT_TARGET == 10
+    assert SEGMENT_MAX == 20
     fake_input = "/fake/x.m4a"
     with patch("server.audio_utils.probe_duration", return_value=600.0), \
          patch("server.audio_utils.detect_silences", return_value=[]), \

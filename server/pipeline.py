@@ -31,6 +31,13 @@ def _emit(
         on_event(stage, done, total)
 
 
+def _write_text_atomic(path: str, content: str) -> None:
+    tmp_path = f"{path}.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        f.write(content)
+    os.replace(tmp_path, path)
+
+
 def run_pipeline(
     url: str,
     summary: bool = False,
@@ -77,10 +84,9 @@ def run_pipeline(
             keep_splits_dir=split_dir,
             on_progress=_progress,
         )
-        with open(transcript_path, "w", encoding="utf-8") as f:
-            f.write(transcript)
+        _write_text_atomic(transcript_path, transcript)
 
-    summary_path = os.path.join(output_dir, "summary.md")
+    summary_path = os.path.join(output_dir, "summary.json")
     result_summary_path: str | None = None
     if summary:
         result_summary_path = summary_path
@@ -88,15 +94,83 @@ def run_pipeline(
             if not LLM_API_KEY:
                 raise ValueError("未配置 LLM_API_KEY")
             _emit(on_event, "summarizing")
-            summary_text = summarize_transcript(
+            summary_data = summarize_transcript(
                 transcript,
                 meta=info,
                 api_key=LLM_API_KEY,
                 base_url=LLM_BASE_URL,
                 model=LLM_MODEL,
             )
-            with open(summary_path, "w", encoding="utf-8") as f:
-                f.write(summary_text)
+            _write_text_atomic(
+                summary_path, json.dumps(summary_data, ensure_ascii=False, indent=2)
+            )
+
+    _emit(on_event, "done")
+    return PipelineResult(
+        episode_id=episode_id,
+        output_dir=output_dir,
+        meta=info,
+        transcript_path=transcript_path,
+        summary_path=result_summary_path,
+    )
+
+
+def regenerate_episode(
+    episode_id: str,
+    transcript: bool = False,
+    summary: bool = False,
+    output_root: str = "output",
+    on_event: PipelineEvent | None = None,
+) -> PipelineResult:
+    if not transcript and not summary:
+        raise ValueError("请选择需要重新生成的内容")
+
+    output_dir = os.path.join(output_root, episode_id)
+    meta_path = os.path.join(output_dir, "meta.json")
+    if not os.path.isdir(output_dir) or not os.path.exists(meta_path):
+        raise FileNotFoundError(f"节目不存在: {episode_id}")
+
+    with open(meta_path, "r", encoding="utf-8") as f:
+        info = json.load(f)
+
+    audio_path = os.path.join(output_dir, "audio.m4a")
+    transcript_path = os.path.join(output_dir, "transcript.txt")
+    transcript_text: str
+
+    if transcript:
+        if not os.path.exists(audio_path):
+            raise FileNotFoundError(f"音频不存在，无法重新生成逐字稿: {audio_path}")
+        if not MIMO_API_KEY:
+            raise ValueError("未配置 MIMO_API_KEY")
+
+        def _progress(stage: str, done: int, total: int) -> None:
+            _emit(on_event, stage, done, total)
+
+        transcript_text = transcribe_audio(audio_path, on_progress=_progress)
+        _write_text_atomic(transcript_path, transcript_text)
+    else:
+        if not os.path.exists(transcript_path):
+            raise FileNotFoundError(f"逐字稿不存在，无法生成摘要: {transcript_path}")
+        with open(transcript_path, "r", encoding="utf-8") as f:
+            transcript_text = f.read()
+
+    summary_path = os.path.join(output_dir, "summary.json")
+    result_summary_path: str | None = None
+    if summary:
+        if not LLM_API_KEY:
+            raise ValueError("未配置 LLM_API_KEY")
+        _emit(on_event, "summarizing")
+        summary_data = summarize_transcript(
+            transcript_text,
+            meta=info,
+            api_key=LLM_API_KEY,
+            base_url=LLM_BASE_URL,
+            model=LLM_MODEL,
+        )
+        _write_text_atomic(
+            summary_path, json.dumps(summary_data, ensure_ascii=False, indent=2)
+        )
+        result_summary_path = summary_path
 
     _emit(on_event, "done")
     return PipelineResult(
