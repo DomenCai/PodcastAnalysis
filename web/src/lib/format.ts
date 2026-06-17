@@ -1,3 +1,5 @@
+import type { TaskState } from "./types";
+
 export function formatDuration(seconds: number | null | undefined): string {
   if (!seconds || seconds < 0) {
     return "未知时长";
@@ -30,4 +32,19 @@ export function stageLabel(stage: string): string {
     error: "失败"
   };
   return labels[stage] || stage;
+}
+
+export function stageProgressText(task: Pick<TaskState, "stage" | "done" | "total">): string | null {
+  if (task.done == null || task.total == null || task.total <= 0) {
+    return null;
+  }
+
+  if (task.stage === "splitting") {
+    return `${task.done}/${task.total} 完成`;
+  }
+  if (task.stage === "transcribing") {
+    return `${task.done}/${task.total} · ${Math.round((task.done / task.total) * 100)}%`;
+  }
+
+  return null;
 }

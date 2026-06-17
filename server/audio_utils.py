@@ -4,10 +4,13 @@ import subprocess
 from collections.abc import Callable
 
 SEGMENT_BITRATE = "64k"
+LONG_SILENCE_SEARCH_START = 8
+LONG_SILENCE_SEARCH_END = 30
 SEGMENT_TARGET = 10
-SEGMENT_MAX = 20
-SILENCE_NOISE_DB = -30.0
+SEGMENT_MAX = 25
+SILENCE_NOISE_DB = -20.0
 SILENCE_MIN_DURATION = 0.2
+LONG_SILENCE_MIN_DURATION = 0.8
 
 
 def probe_duration(input_path: str) -> float:
@@ -53,24 +56,69 @@ def compute_cut_points(
     silences: list[tuple[float, float]],
     target: float = SEGMENT_TARGET,
     max_sec: float = SEGMENT_MAX,
+    long_search_start: float = LONG_SILENCE_SEARCH_START,
+    long_search_end: float = LONG_SILENCE_SEARCH_END,
+    long_silence_sec: float = LONG_SILENCE_MIN_DURATION,
 ) -> list[float]:
-    """在 [cursor+target, cursor+max_sec] 窗口内选最长静音切割，找不到则在 max_sec 处硬切。"""
+    """先找长静音自然切点；找不到时回退到 target~max_sec 普通静音切点。"""
     cuts: list[float] = []
     cursor = 0.0
+    silence_index = 0
     while duration - cursor > max_sec:
+        best: float | None = None
+
+        long_window_start = cursor + long_search_start
+        long_window_end = min(cursor + long_search_end, duration)
         window_start = cursor + target
         window_end = min(cursor + max_sec, duration)
-        best = window_end
-        best_silence_duration = 0.0
-        for s, e in silences:
-            overlap_start = max(s, window_start)
-            overlap_end = min(e, window_end)
+        earliest_window_start = min(long_window_start, window_start)
+
+        while (
+            silence_index < len(silences)
+            and silences[silence_index][1] <= earliest_window_start
+        ):
+            silence_index += 1
+
+        best_long_silence_duration = 0.0
+        i = silence_index
+        while i < len(silences):
+            s, e = silences[i]
+            if s >= long_window_end:
+                break
+            overlap_start = max(s, long_window_start)
+            overlap_end = min(e, long_window_end)
             silence_duration = overlap_end - overlap_start
-            if silence_duration <= 0:
+            i += 1
+            if (
+                silence_duration < long_silence_sec
+                or silence_duration <= best_long_silence_duration
+            ):
                 continue
-            if silence_duration > best_silence_duration:
-                best_silence_duration = silence_duration
-                best = (overlap_start + overlap_end) / 2
+            best_long_silence_duration = silence_duration
+            best = (overlap_start + overlap_end) / 2
+
+        if best is None:
+            best_silence_duration = 0.0
+            i = silence_index
+            while i < len(silences):
+                s, e = silences[i]
+                if s >= window_end:
+                    break
+                i += 1
+                if e <= window_start:
+                    continue
+                overlap_start = max(s, window_start)
+                overlap_end = min(e, window_end)
+                silence_duration = overlap_end - overlap_start
+                if silence_duration <= 0:
+                    continue
+                if silence_duration > best_silence_duration:
+                    best_silence_duration = silence_duration
+                    best = (overlap_start + overlap_end) / 2
+
+        if best is None:
+            best = cursor + max_sec
+
         cuts.append(best)
         cursor = best
     return cuts
@@ -112,9 +160,12 @@ def convert_and_split(
     out_dir: str,
     target: float = SEGMENT_TARGET,
     max_sec: float = SEGMENT_MAX,
+    long_search_start: float = LONG_SILENCE_SEARCH_START,
+    long_search_end: float = LONG_SILENCE_SEARCH_END,
+    long_silence_sec: float = LONG_SILENCE_MIN_DURATION,
     on_progress: Callable[[int, int], None] | None = None,
 ) -> list[tuple[str, float, float]]:
-    """把音频转码为 mp3 并切片。在 target~max_sec 窗口内优先选静音点切割。
+    """把音频转码为 mp3 并切片。优先切长静音，普通静音和 max_sec 兜底。
 
     on_progress(done, total) 在每个切片完成时回调。
     返回 [(path, start, end), ...]。
@@ -128,7 +179,15 @@ def convert_and_split(
         return [(out, 0.0, duration)]
 
     silences = detect_silences(input_path)
-    cut_points = compute_cut_points(duration, silences, target, max_sec)
+    cut_points = compute_cut_points(
+        duration,
+        silences,
+        target,
+        max_sec,
+        long_search_start,
+        long_search_end,
+        long_silence_sec,
+    )
     boundaries = [0.0, *cut_points, duration]
     total = len(boundaries) - 1
     segments: list[tuple[str, float, float]] = []

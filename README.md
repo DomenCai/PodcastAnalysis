@@ -43,6 +43,16 @@ uv run python -m cli.analyze "https://www.xiaoyuzhoufm.com/episode/<id>" --keep-
 uv run python -m cli.analyze "https://www.xiaoyuzhoufm.com/episode/<id>" -o my_output
 ```
 
+## 切片策略
+
+默认以 `-20dB / 0.2s` 检测普通静音。切片时先在 `cursor+8` 到 `cursor+30` 区间找最长静音；如果最长静音达到 `0.8s`，就切在这个静音中点。否则回退到 `cursor+10` 到 `cursor+20` 区间找最长普通静音；仍找不到时，切在 `cursor+20`。
+
+直接切本地音频时，可以用这些参数调整策略：
+
+```bash
+uv run python -m cli.split_audio output/<episode_id>/audio.m4a --long-search-start 8 --long-search-end 30 --target 10 --max-sec 20 --long-silence-sec 0.8
+```
+
 ## Web 界面
 
 Web 界面仍复用同一套 Python 处理流程，运行前需要完成上面的 Python / uv / ffmpeg / ffprobe / `.env` 配置。

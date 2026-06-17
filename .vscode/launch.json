@@ -1,0 +1,122 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "CLI: analyze episode",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "cli.analyze",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": [
+        "${input:episodeUrl}",
+        "--keep-splits"
+      ]
+    },
+    {
+      "name": "CLI: analyze episode with summary",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "cli.analyze",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": [
+        "${input:episodeUrl}",
+        "--summary",
+        "--keep-splits"
+      ]
+    },
+    {
+      "name": "CLI: analyze existing audio",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "cli.analyze",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": [
+        "${input:episodeUrl}",
+        "--skip-download",
+        "--keep-splits"
+      ]
+    },
+    {
+      "name": "CLI: split audio",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "cli.split_audio",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": [
+        "${input:audioPath}",
+        "-o",
+        "${input:splitOutputDir}",
+        "--force"
+      ]
+    },
+    {
+      "name": "CLI: split current sample",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "cli.split_audio",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": [
+        "output/6a2ea7064233e62bc549afed/audio.m4a",
+        "-o",
+        "output/6a2ea7064233e62bc549afed/debug-split",
+        "--force"
+      ]
+    },
+    {
+      "name": "CLI: transcribe file",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "cli.transcribe_file",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": [
+        "${input:audioPath}",
+        "-o",
+        "${input:transcriptOutputPath}",
+        "--force"
+      ]
+    }
+  ],
+  "inputs": [
+    {
+      "id": "episodeUrl",
+      "type": "promptString",
+      "description": "Xiaoyuzhou episode URL"
+    },
+    {
+      "id": "audioPath",
+      "type": "promptString",
+      "description": "Audio file path",
+      "default": "output/6a2ea7064233e62bc549afed/audio.m4a"
+    },
+    {
+      "id": "splitOutputDir",
+      "type": "promptString",
+      "description": "Split output directory",
+      "default": "output/debug-split"
+    },
+    {
+      "id": "transcriptOutputPath",
+      "type": "promptString",
+      "description": "Transcript output file",
+      "default": "output/transcribe/debug.txt"
+    }
+  ]
+}

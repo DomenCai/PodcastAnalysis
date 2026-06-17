@@ -1,4 +1,6 @@
 import importlib
+import threading
+import time
 
 from fastapi.testclient import TestClient
 
@@ -161,6 +163,66 @@ def test_regenerate_episode_requires_selection(tmp_path, monkeypatch):
     )
 
     assert response.status_code == 400
+
+
+def test_regenerate_episode_endpoint_reports_transcript_progress(tmp_path, monkeypatch):
+    monkeypatch.setattr(server_module, "OUTPUT_ROOT", tmp_path)
+    _reset_tasks()
+
+    episode_id = "6a2d134143a22a6955830bfe"
+    episode = tmp_path / episode_id
+    episode.mkdir()
+    (episode / "meta.json").write_text('{"title":"标题"}', encoding="utf-8")
+
+    progress_seen = threading.Event()
+    finish = threading.Event()
+
+    def fake_regenerate_episode(
+        called_episode_id,
+        transcript=False,
+        summary=False,
+        output_root="output",
+        on_event=None,
+    ):
+        assert called_episode_id == episode_id
+        assert transcript is True
+        assert summary is False
+        assert output_root == str(tmp_path)
+        on_event("transcribing", 2, 5)
+        progress_seen.set()
+        finish.wait(timeout=1)
+
+    monkeypatch.setattr(server_module, "regenerate_episode", fake_regenerate_episode)
+
+    client = TestClient(server_module.app)
+    response = client.post(
+        f"/api/episodes/{episode_id}/regenerate",
+        json={"transcript": True, "summary": False},
+    )
+
+    assert response.status_code == 200
+    task_id = response.json()["task_id"]
+    assert progress_seen.wait(timeout=1)
+
+    task = client.get(f"/api/tasks/{task_id}")
+
+    assert task.status_code == 200
+    assert task.json() == {
+        "task_id": task_id,
+        "episode_id": episode_id,
+        "stage": "transcribing",
+        "done": 2,
+        "total": 5,
+        "status": "running",
+        "error": None,
+    }
+
+    finish.set()
+    deadline = time.monotonic() + 1
+    while time.monotonic() < deadline:
+        if client.get(f"/api/tasks/{task_id}").json()["status"] == "done":
+            break
+        time.sleep(0.01)
 
 
 def test_static_dist_serves_index_assets_and_spa_fallback(tmp_path, monkeypatch):

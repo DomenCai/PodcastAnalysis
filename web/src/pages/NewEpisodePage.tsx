@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { ApiError, createEpisode, getTask } from "../lib/api";
 import type { Health, TaskState } from "../lib/types";
-import { stageLabel } from "../lib/format";
+import { stageLabel, stageProgressText } from "../lib/format";
 import { getBlockingHealthIssues } from "../components/HealthStatus";
 import { navigate } from "../lib/routing";
 
@@ -35,28 +35,6 @@ function orderedStages(includeSummary: boolean, currentStage?: string) {
     stages.splice(stages.length - 1, 0, { key: "summarizing", icon: Sparkles });
   }
   return stages;
-}
-
-function stageDetail(task: TaskState, key: string): string | null {
-  if (
-    key === "splitting" &&
-    task.stage === "splitting" &&
-    task.done != null &&
-    task.total != null &&
-    task.total > 0
-  ) {
-    return `${task.done}/${task.total} 完成`;
-  }
-  if (
-    key === "transcribing" &&
-    task.stage === "transcribing" &&
-    task.done != null &&
-    task.total != null &&
-    task.total > 0
-  ) {
-    return `${task.done}/${task.total} · ${Math.round((task.done / task.total) * 100)}%`;
-  }
-  return null;
 }
 
 function ProgressView({
@@ -91,7 +69,7 @@ function ProgressView({
             const isFailed = index === failedIndex;
             const done = allDone || (currentIndex > index && currentIndex >= 0);
             const active = !isFailed && !done && task.status === "running" && task.stage === key;
-            const detail = active ? stageDetail(task, key) : null;
+            const detail = active ? stageProgressText(task) : null;
             const failedProgress = isFailed && task.done != null && task.total != null && task.total > 0
               ? ` (${Math.round((task.done / task.total) * 100)}%)`
               : "";

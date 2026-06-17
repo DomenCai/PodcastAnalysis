@@ -12,8 +12,7 @@
     "lucide-react": "^1.18.0",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
-    "react-markdown": "^10.1.0",
-    "wavesurfer.js": "^7.12.1"
+    "react-markdown": "^10.1.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.7",

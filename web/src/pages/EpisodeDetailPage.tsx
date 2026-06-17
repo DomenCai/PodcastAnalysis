@@ -18,12 +18,12 @@ import {
   getTranscript,
   regenerateEpisode
 } from "../lib/api";
-import { formatDuration, getDescription, stageLabel } from "../lib/format";
+import { formatDuration, getDescription, stageLabel, stageProgressText } from "../lib/format";
 import type { EpisodeDetail, SummaryData, TaskState } from "../lib/types";
 import { ErrorState } from "../components/ErrorState";
 import { LoadingState } from "../components/LoadingState";
 import { SummaryView } from "../components/SummaryView";
-import { WaveformPlayer } from "../components/WaveformPlayer";
+import { AudioProgressBar } from "../components/AudioProgressBar";
 import { navigate } from "../lib/routing";
 
 type TranscriptLine = {
@@ -393,9 +393,10 @@ export function EpisodeDetailPage({ id }: { id: string }) {
   const description = getDescription(episode);
   const actionBusy = deleting || regenerating || task?.status === "running";
   const canRegenerateSummary = episode.has_transcript || regenerateTranscript;
+  const runningTaskProgress = task?.status === "running" ? stageProgressText(task) : null;
 
   return (
-    <article className="space-y-7">
+    <article className={episode.has_audio ? "space-y-7 pb-36 sm:pb-24" : "space-y-7"}>
       <div className="page-header">
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <button className="secondary-button" onClick={() => navigate("/")}>
@@ -450,7 +451,10 @@ export function EpisodeDetailPage({ id }: { id: string }) {
         {task?.status === "running" && (
           <div className="notice chip-neutral mt-4">
             <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
-            <span>正在重新生成：{stageLabel(task.stage)}</span>
+            <span>
+              正在重新生成：{stageLabel(task.stage)}
+              {runningTaskProgress ? `（${runningTaskProgress}）` : ""}
+            </span>
           </div>
         )}
         {actionError && !dialog && (
@@ -460,19 +464,6 @@ export function EpisodeDetailPage({ id }: { id: string }) {
           </div>
         )}
       </div>
-
-      <section className="space-y-3">
-        <h2 className="section-title">音频</h2>
-        <WaveformPlayer
-          episodeId={id}
-          hasAudio={episode.has_audio}
-          onTime={setCurrentTime}
-          onPlayingChange={setPlaying}
-          onReady={(controls) => {
-            seekRef.current = controls.seek;
-          }}
-        />
-      </section>
 
       <section className="space-y-4">
         <div className="tab-list" role="tablist" aria-label="节目详情内容">
@@ -507,6 +498,18 @@ export function EpisodeDetailPage({ id }: { id: string }) {
           </div>
         )}
       </section>
+
+      <AudioProgressBar
+        key={id}
+        episodeId={id}
+        hasAudio={episode.has_audio}
+        title={episode.title || episode.id}
+        onTime={setCurrentTime}
+        onPlayingChange={setPlaying}
+        onReady={(controls) => {
+          seekRef.current = controls.seek;
+        }}
+      />
 
       {dialog === "delete" && (
         <div

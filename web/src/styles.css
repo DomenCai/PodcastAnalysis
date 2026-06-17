@@ -61,9 +61,6 @@
     --color-danger-text: #b91c1c;
     --color-shadow: rgba(43, 43, 64, 0.10);
     --focus-ring: rgba(45, 45, 68, 0.25);
-    --wave-cursor: var(--color-accent);
-    --wave-progress: var(--color-accent);
-    --wave-base: #d2d2de;
   }
 
   html[data-theme="dark"] {
@@ -123,9 +120,6 @@
     --color-danger-text: #f87171;
     --color-shadow: rgba(0, 0, 0, 0.45);
     --focus-ring: rgba(196, 169, 246, 0.40);
-    --wave-cursor: var(--color-accent);
-    --wave-progress: var(--color-accent);
-    --wave-base: #34343f;
   }
 
   * {
@@ -881,6 +875,69 @@
   .progress-fill {
     @apply h-full rounded-full transition-all;
     background: var(--color-primary);
+  }
+
+  .audio-progress-bar {
+    @apply fixed bottom-0 left-0 right-0 z-40 border-t px-4 py-3;
+    background: color-mix(in srgb, var(--color-panel-solid) 92%, transparent);
+    border-color: var(--color-border);
+    box-shadow: 0 -16px 34px -28px var(--color-shadow);
+    backdrop-filter: blur(16px);
+  }
+
+  @media (min-width: 1024px) {
+    .audio-progress-bar {
+      left: 16rem;
+    }
+  }
+
+  .audio-progress-inner {
+    @apply mx-auto flex max-w-[1180px] flex-col gap-3 sm:flex-row sm:items-center;
+  }
+
+  .audio-progress-main {
+    @apply flex min-w-0 items-center gap-3 sm:w-64;
+  }
+
+  .audio-progress-meta {
+    @apply min-w-0;
+  }
+
+  .audio-progress-title {
+    @apply truncate text-sm font-medium;
+    color: var(--color-text);
+  }
+
+  .audio-progress-time {
+    @apply text-xs tabular-nums;
+    color: var(--color-muted);
+  }
+
+  .audio-progress-range {
+    @apply h-2 min-w-0 flex-1 cursor-pointer appearance-none rounded-full disabled:cursor-not-allowed;
+    background: linear-gradient(
+      to right,
+      var(--color-primary) var(--audio-progress),
+      var(--color-neutral-bg) var(--audio-progress)
+    );
+  }
+
+  .audio-progress-range::-webkit-slider-thumb {
+    @apply h-4 w-4 appearance-none rounded-full border;
+    background: var(--color-panel-solid);
+    border-color: var(--color-primary);
+    box-shadow: 0 2px 8px var(--color-shadow);
+  }
+
+  .audio-progress-range::-moz-range-thumb {
+    @apply h-4 w-4 rounded-full border;
+    background: var(--color-panel-solid);
+    border-color: var(--color-primary);
+    box-shadow: 0 2px 8px var(--color-shadow);
+  }
+
+  .audio-progress-speed {
+    @apply shrink-0 self-start sm:self-auto;
   }
 
   /* 本地搜索 */

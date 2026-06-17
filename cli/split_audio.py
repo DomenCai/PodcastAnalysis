@@ -2,7 +2,16 @@ import argparse
 import os
 import sys
 
-from server.audio_utils import SEGMENT_MAX, SEGMENT_TARGET, convert_and_split, hms, mmss
+from server.audio_utils import (
+    LONG_SILENCE_MIN_DURATION,
+    LONG_SILENCE_SEARCH_END,
+    LONG_SILENCE_SEARCH_START,
+    SEGMENT_MAX,
+    SEGMENT_TARGET,
+    convert_and_split,
+    hms,
+    mmss,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -18,16 +27,34 @@ def parse_args() -> argparse.Namespace:
         help="切片输出目录，默认 output/split",
     )
     parser.add_argument(
+        "--long-search-start",
+        type=float,
+        default=LONG_SILENCE_SEARCH_START,
+        help=f"长静音扫描窗口起点秒数，默认 {LONG_SILENCE_SEARCH_START}",
+    )
+    parser.add_argument(
+        "--long-search-end",
+        type=float,
+        default=LONG_SILENCE_SEARCH_END,
+        help=f"长静音扫描窗口终点秒数，默认 {LONG_SILENCE_SEARCH_END}",
+    )
+    parser.add_argument(
         "--target",
         type=float,
         default=SEGMENT_TARGET,
-        help=f"开始寻找静音点的秒数，默认 {SEGMENT_TARGET}",
+        help=f"普通静音兜底窗口起点秒数，默认 {SEGMENT_TARGET}",
     )
     parser.add_argument(
         "--max-sec",
         type=float,
         default=SEGMENT_MAX,
-        help=f"单段最长秒数，默认 {SEGMENT_MAX}",
+        help=f"普通静音兜底窗口终点和硬切秒数，默认 {SEGMENT_MAX}",
+    )
+    parser.add_argument(
+        "--long-silence-sec",
+        type=float,
+        default=LONG_SILENCE_MIN_DURATION,
+        help=f"优先切开的长静音秒数，默认 {LONG_SILENCE_MIN_DURATION}",
     )
     parser.add_argument(
         "--force",
@@ -45,10 +72,22 @@ def main() -> int:
     if not os.path.isfile(audio_path):
         print(f"输入音频不存在: {audio_path}", file=sys.stderr)
         return 1
-    if args.target <= 0 or args.max_sec <= 0:
-        print("--target 和 --max-sec 必须大于 0", file=sys.stderr)
+    if (
+        args.long_search_start <= 0
+        or args.long_search_end <= 0
+        or args.target <= 0
+        or args.max_sec <= 0
+        or args.long_silence_sec <= 0
+    ):
+        print("所有时长参数都必须大于 0", file=sys.stderr)
         return 1
-    if args.target >= args.max_sec:
+    if not args.long_search_start < args.long_search_end:
+        print(
+            "--long-search-start 必须小于 --long-search-end",
+            file=sys.stderr,
+        )
+        return 1
+    if not args.target < args.max_sec:
         print("--target 必须小于 --max-sec", file=sys.stderr)
         return 1
 
@@ -74,6 +113,9 @@ def main() -> int:
         output_dir,
         target=args.target,
         max_sec=args.max_sec,
+        long_search_start=args.long_search_start,
+        long_search_end=args.long_search_end,
+        long_silence_sec=args.long_silence_sec,
         on_progress=on_progress,
     )
     print()

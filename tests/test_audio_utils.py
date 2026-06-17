@@ -8,7 +8,6 @@ from server.audio_utils import (
     convert_and_split,
     mmss,
     hms,
-    SEGMENT_TARGET,
     SEGMENT_MAX,
 )
 
@@ -54,30 +53,38 @@ def test_compute_cut_points_short_audio_no_cut():
     assert compute_cut_points(SEGMENT_MAX, []) == []
 
 
-def test_compute_cut_points_prefers_silence_in_window():
-    duration = 500.0
+def test_compute_cut_points_prefers_longest_long_silence_in_wide_window():
+    duration = 120.0
     silences = [
-        (50.0, 50.5),
-        (105.0, 105.5),
-        (112.0, 114.0),    # 在 [100, 120] 窗口内，最长静音中点 113
-        (300.0, 301.0),
+        (12.0, 13.0),
+        (18.0, 20.0),
+        (24.0, 24.4),
     ]
-    cuts = compute_cut_points(duration, silences, target=100, max_sec=120)
+    cuts = compute_cut_points(duration, silences)
     assert len(cuts) >= 1
-    assert abs(cuts[0] - 113.0) < 0.1
+    assert abs(cuts[0] - 19.0) < 0.1
 
 
-def test_compute_cut_points_hard_cut_when_no_silence():
-    cuts = compute_cut_points(500.0, [], target=100, max_sec=120)
-    assert cuts[0] == 120.0
-    assert cuts[1] == 240.0
+def test_compute_cut_points_falls_back_to_ordinary_silence_in_target_window():
+    duration = 120.0
+    silences = [
+        (12.0, 12.3),
+        (16.0, 16.7),
+        (24.0, 24.5),
+    ]
+    cuts = compute_cut_points(duration, silences)
+    assert len(cuts) >= 1
+    assert abs(cuts[0] - 16.35) < 0.1
 
 
-def test_compute_cut_points_ignores_silence_outside_window():
-    duration = 500.0
-    silences = [(125.0, 126.0)]  # 超出 [100, 120] 窗口
-    cuts = compute_cut_points(duration, silences, target=100, max_sec=120)
-    assert cuts[0] == 120.0
+def test_compute_cut_points_hard_cut_when_no_ordinary_silence():
+    cuts = compute_cut_points(120.0, [])
+    assert cuts[0] == SEGMENT_MAX
+    assert cuts[1] == SEGMENT_MAX * 2
+
+
+def test_compute_cut_points_leaves_final_segment_under_max():
+    assert compute_cut_points(SEGMENT_MAX, []) == []
 
 
 def test_mmss():
@@ -116,14 +123,14 @@ def test_convert_and_split_short_audio_single_segment(tmp_path):
 
 def test_convert_and_split_uses_silence_detection(tmp_path):
     fake_input = "/fake/long.m4a"
-    silences = [(12.0, 14.0), (32.0, 33.0)]
+    silences = [(12.0, 13.0), (32.0, 33.0)]
     with patch("server.audio_utils.probe_duration", return_value=200.0), \
          patch("server.audio_utils.detect_silences", return_value=silences), \
          patch("server.audio_utils.extract_segment", side_effect=lambda i, s, e, o: o):
         segments = convert_and_split(fake_input, str(tmp_path))
     starts = [s for _, s, _ in segments]
     assert starts[0] == 0.0
-    assert abs(starts[1] - 13.0) < 0.1
+    assert abs(starts[1] - 12.5) < 0.1
 
 
 def test_convert_and_split_no_silence_hard_cuts(tmp_path):
@@ -133,17 +140,9 @@ def test_convert_and_split_no_silence_hard_cuts(tmp_path):
          patch("server.audio_utils.extract_segment", side_effect=lambda i, s, e, o: o):
         segments = convert_and_split(fake_input, str(tmp_path))
     assert segments[0] == (str(tmp_path / "segment_0000.mp3"), 0.0, SEGMENT_MAX)
-    assert segments[1] == (str(tmp_path / "segment_0001.mp3"), SEGMENT_MAX, SEGMENT_MAX * 2)
+    assert segments[1] == (
+        str(tmp_path / "segment_0001.mp3"),
+        SEGMENT_MAX,
+        SEGMENT_MAX * 2,
+    )
     assert segments[-1][2] == 200.0
-
-
-def test_convert_and_split_each_segment_within_max(tmp_path):
-    assert SEGMENT_TARGET == 10
-    assert SEGMENT_MAX == 20
-    fake_input = "/fake/x.m4a"
-    with patch("server.audio_utils.probe_duration", return_value=600.0), \
-         patch("server.audio_utils.detect_silences", return_value=[]), \
-         patch("server.audio_utils.extract_segment", side_effect=lambda i, s, e, o: o):
-        segments = convert_and_split(fake_input, str(tmp_path))
-    for _, start, end in segments:
-        assert end - start <= SEGMENT_MAX
