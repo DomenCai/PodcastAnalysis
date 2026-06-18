@@ -1,0 +1,13 @@
+services:
+  podcast-analysis:
+    build: .
+    image: podcast-analysis:local
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      AUTH_SECRET: ${AUTH_SECRET:?Set AUTH_SECRET in .env before running docker compose up}
+    ports:
+      - "127.0.0.1:${PORT:-8000}:8000"
+    volumes:
+      - ./output:/app/output

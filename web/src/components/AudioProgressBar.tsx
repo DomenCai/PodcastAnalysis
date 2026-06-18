@@ -1,5 +1,6 @@
 import { type CSSProperties, useRef, useState } from "react";
 import { Pause, Play } from "lucide-react";
+import { withAuthSecret } from "../lib/api";
 
 type Props = {
   episodeId: string;
@@ -90,7 +91,7 @@ export function AudioProgressBar({
     <div className="audio-progress-bar">
       <audio
         ref={audioRef}
-        src={`/api/episodes/${episodeId}/audio`}
+        src={withAuthSecret(`/api/episodes/${episodeId}/audio`)}
         preload="metadata"
         onLoadedMetadata={(event) => {
           const audio = event.currentTarget;

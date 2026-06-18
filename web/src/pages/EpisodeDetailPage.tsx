@@ -16,7 +16,8 @@ import {
   getSummary,
   getTask,
   getTranscript,
-  regenerateEpisode
+  regenerateEpisode,
+  withAuthSecret
 } from "../lib/api";
 import { formatDuration, getDescription, stageLabel, stageProgressText } from "../lib/format";
 import type { EpisodeDetail, SummaryData, TaskState } from "../lib/types";
@@ -173,7 +174,7 @@ function DownloadLink({
   }
 
   return (
-    <a className="secondary-button" href={href} download>
+    <a className="secondary-button" href={withAuthSecret(href)} download>
       <Download className="h-4 w-4" />
       {children}
     </a>

@@ -80,6 +80,33 @@ uv run uvicorn server.app:app
 
 此方式同样默认服务 Web 界面和 `/api/*`，浏览器手动打开 `http://127.0.0.1:8000` 即可。
 
+## 鉴权
+
+Web 服务支持最简单的访问密码。默认不启用；在 `.env` 里配置 `AUTH_SECRET` 后，`/api/*` 请求会要求带上访问密码：
+
+```bash
+AUTH_SECRET=change-this-password
+```
+
+访问时可以打开 `http://server:8000/?secret=change-this-password` 自动通过鉴权；如果没有带 `secret`，页面会在第一次请求 API 时弹出密码输入框。云服务器部署时建议务必开启鉴权，并在反向代理上配置 HTTPS。
+
+## Docker Compose 部署
+
+先准备 `.env`，填入 API Key 和访问密码：
+
+```bash
+cp .env.example .env
+# 编辑 .env，至少配置 MIMO_API_KEY、AUTH_SECRET；需要摘要时配置 LLM_API_KEY
+```
+
+启动：
+
+```bash
+docker compose up -d --build
+```
+
+默认端口映射为 `127.0.0.1:8000:8000`，适合在云服务器上由 Nginx / Caddy 反向代理到本服务。处理结果通过 `./output:/app/output` 挂载持久化，重建容器不会丢已有音频、逐字稿和摘要。
+
 ## 输出结构
 
 ```
@@ -105,6 +132,7 @@ output/<episode_id>/
 | `STT_MAX_WORKERS` | 否 | 转录并发数，默认 `4` |
 | `STT_REQUESTS_PER_MINUTE` | 否 | MiMo 转录请求限速，默认 `90` |
 | `STT_RATE_LIMIT_RETRIES` | 否 | 429 限流重试次数，默认 `2` |
+| `AUTH_SECRET` | Docker 部署建议 | Web 访问密码；Docker Compose 部署必须设置 |
 
 ## 测试
 

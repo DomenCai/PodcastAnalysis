@@ -1,0 +1,14 @@
+.git
+.venv
+.pytest_cache
+__pycache__
+*.py[cod]
+.DS_Store
+
+.env
+.env.*
+!.env.example
+
+output
+web/node_modules
+web/dist

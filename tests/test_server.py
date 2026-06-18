@@ -2,6 +2,7 @@ import importlib
 import threading
 import time
 
+import pytest
 from fastapi.testclient import TestClient
 
 server_module = importlib.import_module("server.app")
@@ -13,9 +14,45 @@ def _reset_tasks():
         server_module._running_task_id = None
 
 
+@pytest.fixture(autouse=True)
+def _disable_auth(monkeypatch):
+    monkeypatch.setattr(server_module, "AUTH_SECRET", None)
+
+
 def test_server_package_exports_asgi_app():
     package = importlib.import_module("server")
     assert package.app is server_module.app
+
+
+def test_api_secret_auth_rejects_missing_and_bad_secret(tmp_path, monkeypatch):
+    monkeypatch.setattr(server_module, "OUTPUT_ROOT", tmp_path)
+    monkeypatch.setattr(server_module, "AUTH_SECRET", "secret")
+
+    client = TestClient(server_module.app)
+
+    missing = client.get("/api/health")
+    bad = client.get("/api/health?secret=wrong")
+    ok_query = client.get("/api/health?secret=secret")
+    ok_header = client.get("/api/health", headers={"X-Auth-Secret": "secret"})
+
+    assert missing.status_code == 401
+    assert bad.status_code == 401
+    assert ok_query.status_code == 200
+    assert ok_header.status_code == 200
+
+
+def test_secret_auth_does_not_block_static_files(tmp_path, monkeypatch):
+    monkeypatch.setattr(server_module, "AUTH_SECRET", "secret")
+
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<div>ok</div>", encoding="utf-8")
+    monkeypatch.setattr(server_module, "WEB_DIST", dist)
+
+    response = TestClient(server_module.app).get("/")
+
+    assert response.status_code == 200
+    assert "<div>ok</div>" in response.text
 
 
 def test_list_episodes_skips_corrupt_meta(tmp_path, monkeypatch):

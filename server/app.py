@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import secrets
 import shutil
 import tempfile
 import threading
@@ -11,11 +12,11 @@ from pathlib import Path
 from typing import Literal
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel
 
-from server.config import LLM_API_KEY, MIMO_API_KEY
+from server.config import AUTH_SECRET, LLM_API_KEY, MIMO_API_KEY
 from server.pipeline import regenerate_episode, run_pipeline
 from server.scraper import extract_episode_id
 from server.summarizer import summary_to_markdown
@@ -26,7 +27,25 @@ ID_PATTERN = r"^[a-f0-9]+$"
 
 TaskStatus = Literal["running", "done", "error"]
 
-app = FastAPI(title="PodcastAnalysis Web")
+
+def require_auth(
+    request: Request,
+    secret: str | None = Query(default=None),
+    x_auth_secret: str | None = Header(default=None),
+) -> None:
+    if not request.url.path.startswith("/api/"):
+        return
+    if not AUTH_SECRET:
+        return
+    supplied_secret = x_auth_secret or secret
+    if not supplied_secret or not secrets.compare_digest(
+        supplied_secret.encode("utf-8"),
+        AUTH_SECRET.encode("utf-8"),
+    ):
+        raise HTTPException(status_code=401, detail="authentication required")
+
+
+app = FastAPI(title="PodcastAnalysis Web", dependencies=[Depends(require_auth)])
 
 
 class CreateEpisodeRequest(BaseModel):
