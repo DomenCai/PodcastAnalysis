@@ -891,6 +891,10 @@
     }
   }
 
+  .audio-progress-bar-full {
+    left: 0;
+  }
+
   .audio-progress-inner {
     @apply mx-auto flex max-w-[1180px] flex-col gap-3 sm:flex-row sm:items-center;
   }

@@ -28,12 +28,27 @@ ID_PATTERN = r"^[a-f0-9]+$"
 TaskStatus = Literal["running", "done", "error"]
 
 
+def _is_public_episode_read(request: Request) -> bool:
+    if request.method != "GET":
+        return False
+    path = request.url.path
+    return bool(
+        re.fullmatch(
+            rf"/api/episodes/{ID_PATTERN.removeprefix('^').removesuffix('$')}"
+            r"(?:/transcript|/summary|/summary\.md|/audio)?",
+            path,
+        )
+    )
+
+
 def require_auth(
     request: Request,
     secret: str | None = Query(default=None),
     x_auth_secret: str | None = Header(default=None),
 ) -> None:
     if not request.url.path.startswith("/api/"):
+        return
+    if _is_public_episode_read(request):
         return
     if not AUTH_SECRET:
         return

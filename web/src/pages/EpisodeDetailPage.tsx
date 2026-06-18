@@ -1,12 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
-  ChevronDown,
-  ChevronUp,
   Download,
   Loader2,
   RotateCcw,
+  Share2,
   Trash2,
   X
 } from "lucide-react";
@@ -25,135 +24,12 @@ import { ErrorState } from "../components/ErrorState";
 import { LoadingState } from "../components/LoadingState";
 import { SummaryExploreView, SummaryOverviewView } from "../components/SummaryView";
 import { AudioProgressBar } from "../components/AudioProgressBar";
+import { EpisodeDescription } from "../components/EpisodeDescription";
+import { TranscriptBlock } from "../components/TranscriptBlock";
 import { navigate } from "../lib/routing";
-
-type TranscriptLine = {
-  time: string | null;
-  seconds: number | null;
-  content: string;
-};
 
 type DialogMode = "delete" | "regenerate";
 type DetailTab = "transcript" | "summary" | "explore";
-
-function timeToSeconds(time: string | null): number | null {
-  if (!time) return null;
-  const match = time.match(/(\d{2}):(\d{2}):(\d{2})/);
-  if (!match) return null;
-  return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
-}
-
-function EpisodeDescription({ text }: { text: string }) {
-  const [expanded, setExpanded] = useState(false);
-  const canToggle = text.length > 180 || text.includes("\n");
-  const ToggleIcon = expanded ? ChevronUp : ChevronDown;
-  const toggleButton = (
-    <button
-      type="button"
-      className="inline-flex items-center gap-1 text-sm font-medium text-accent"
-      aria-expanded={expanded}
-      onClick={() => setExpanded((value) => !value)}
-    >
-      {expanded ? "收起全文" : "展开全文"}
-      <ToggleIcon className="h-4 w-4" />
-    </button>
-  );
-
-  return (
-    <div className="mt-3 max-w-4xl">
-      {canToggle && expanded && <div className="mb-2">{toggleButton}</div>}
-      <p className={`${expanded ? "" : "line-clamp-4"} whitespace-pre-wrap text-sm leading-7 text-soft`}>
-        {text}
-      </p>
-      {canToggle && !expanded && <div className="mt-2">{toggleButton}</div>}
-    </div>
-  );
-}
-
-function TranscriptBlock({
-  text,
-  activeTime,
-  follow,
-  onSeek
-}: {
-  text: string;
-  activeTime: number;
-  follow: boolean;
-  onSeek: (seconds: number) => void;
-}) {
-  const paragraphs = useMemo<TranscriptLine[]>(
-    () =>
-      text
-        .split(/\n\s*\n/)
-        .map((item) => item.trim())
-        .filter(Boolean)
-        .map((paragraph) => {
-          const match = paragraph.match(/^(\[\d{2}:\d{2}:\d{2}\])\s*(.*)$/s);
-          const time = match ? match[1] : null;
-          return { time, seconds: timeToSeconds(time), content: match ? match[2] : paragraph };
-        }),
-    [text]
-  );
-
-  const activeIndex = useMemo(() => {
-    let idx = 0;
-    for (let i = 0; i < paragraphs.length; i += 1) {
-      const seconds = paragraphs[i].seconds;
-      if (seconds != null && seconds <= activeTime) idx = i;
-    }
-    return idx;
-  }, [paragraphs, activeTime]);
-
-  const activeRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (follow) {
-      activeRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
-    }
-  }, [activeIndex, follow]);
-
-  if (paragraphs.length === 0) {
-    return <div className="empty-panel">暂无逐字稿内容</div>;
-  }
-
-  return (
-    <div className="transcript-list">
-      {paragraphs.map((paragraph, index) => {
-        const isActive = index === activeIndex;
-        const seekable = paragraph.seconds != null;
-        return (
-          <div
-            key={`${index}-${paragraph.content.slice(0, 16)}`}
-            ref={isActive ? activeRef : null}
-            role={seekable ? "button" : undefined}
-            tabIndex={seekable ? 0 : undefined}
-            onClick={seekable ? () => onSeek(paragraph.seconds as number) : undefined}
-            onKeyDown={
-              seekable
-                ? (event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      onSeek(paragraph.seconds as number);
-                    }
-                  }
-                : undefined
-            }
-            className={
-              isActive
-                ? "transcript-row transcript-row-active"
-                : seekable
-                  ? "transcript-row transcript-row-seekable"
-                  : "transcript-row"
-            }
-          >
-            <div className="transcript-time">{paragraph.time || "--:--:--"}</div>
-            <p className="transcript-paragraph">{paragraph.content}</p>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 function DownloadLink({
   href,
@@ -183,6 +59,23 @@ function DownloadLink({
 
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
+}
+
+async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
 }
 
 function TabButton({
@@ -222,6 +115,7 @@ export function EpisodeDetailPage({ id }: { id: string }) {
   const [regenerateSummary, setRegenerateSummary] = useState(false);
   const [taskId, setTaskId] = useState<string | null>(null);
   const [task, setTask] = useState<TaskState | null>(null);
+  const [shareCopied, setShareCopied] = useState(false);
   const [pendingTab, setPendingTab] = useState<DetailTab>("transcript");
   const [currentTime, setCurrentTime] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -231,6 +125,17 @@ export function EpisodeDetailPage({ id }: { id: string }) {
   function seekTo(seconds: number) {
     seekRef.current?.(seconds);
     setCurrentTime(seconds);
+  }
+
+  async function copyShareLink() {
+    try {
+      setActionError(null);
+      await copyText(`${window.location.origin}/share/${id}`);
+      setShareCopied(true);
+      window.setTimeout(() => setShareCopied(false), 1600);
+    } catch (err: unknown) {
+      setActionError(errorMessage(err, "分享链接复制失败"));
+    }
   }
 
   const loadDetails = useCallback(
@@ -413,6 +318,15 @@ export function EpisodeDetailPage({ id }: { id: string }) {
             <button
               type="button"
               className="icon-button"
+              aria-label={shareCopied ? "分享链接已复制" : "复制分享链接"}
+              title={shareCopied ? "分享链接已复制" : "复制分享链接"}
+              onClick={copyShareLink}
+            >
+              <Share2 className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              className="icon-button"
               aria-label="重新生成"
               title="重新生成"
               disabled={actionBusy}
@@ -464,6 +378,12 @@ export function EpisodeDetailPage({ id }: { id: string }) {
           <div className="notice chip-danger mt-4">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>{actionError}</span>
+          </div>
+        )}
+        {shareCopied && (
+          <div className="notice chip-success mt-4">
+            <Share2 className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>分享链接已复制。</span>
           </div>
         )}
       </div>

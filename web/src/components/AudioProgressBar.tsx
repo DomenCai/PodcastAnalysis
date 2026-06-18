@@ -9,6 +9,7 @@ type Props = {
   onTime?: (seconds: number) => void;
   onPlayingChange?: (playing: boolean) => void;
   onReady?: (controls: { seek: (seconds: number) => void }) => void;
+  fullWidth?: boolean;
 };
 
 function formatTime(seconds: number): string {
@@ -29,7 +30,8 @@ export function AudioProgressBar({
   title,
   onTime,
   onPlayingChange,
-  onReady
+  onReady,
+  fullWidth = false
 }: Props) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [ready, setReady] = useState(false);
@@ -88,7 +90,7 @@ export function AudioProgressBar({
   const progressStyle = { "--audio-progress": `${progress}%` } as CSSProperties;
 
   return (
-    <div className="audio-progress-bar">
+    <div className={fullWidth ? "audio-progress-bar audio-progress-bar-full" : "audio-progress-bar"}>
       <audio
         ref={audioRef}
         src={withAuthSecret(`/api/episodes/${episodeId}/audio`)}

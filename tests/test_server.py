@@ -41,6 +41,34 @@ def test_api_secret_auth_rejects_missing_and_bad_secret(tmp_path, monkeypatch):
     assert ok_header.status_code == 200
 
 
+def test_share_read_endpoints_do_not_require_secret(tmp_path, monkeypatch):
+    monkeypatch.setattr(server_module, "OUTPUT_ROOT", tmp_path)
+    monkeypatch.setattr(server_module, "AUTH_SECRET", "secret")
+
+    episode_id = "6a2d134143a22a6955830bfe"
+    episode = tmp_path / episode_id
+    episode.mkdir()
+    (episode / "meta.json").write_text(
+        '{"title":"标题","podcast_title":"播客","duration":60,"audio_url":"https://audio.example.com/a.m4a"}',
+        encoding="utf-8",
+    )
+    (episode / "transcript.txt").write_text("逐字稿", encoding="utf-8")
+    (episode / "summary.json").write_text(
+        '{"overview":[{"time":"00:00","title":null,"text":"摘要"}],"mindmap":{"note":null,"nodes":[]},"worth_following":[]}',
+        encoding="utf-8",
+    )
+    (episode / "audio.m4a").write_bytes(b"audio")
+
+    client = TestClient(server_module.app)
+
+    assert client.get(f"/api/episodes/{episode_id}").status_code == 200
+    assert client.get(f"/api/episodes/{episode_id}/transcript").status_code == 200
+    assert client.get(f"/api/episodes/{episode_id}/summary").status_code == 200
+    assert client.get(f"/api/episodes/{episode_id}/summary.md").status_code == 200
+    assert client.get(f"/api/episodes/{episode_id}/audio").status_code == 200
+    assert client.get("/api/episodes").status_code == 401
+
+
 def test_secret_auth_does_not_block_static_files(tmp_path, monkeypatch):
     monkeypatch.setattr(server_module, "AUTH_SECRET", "secret")
 

@@ -11,6 +11,7 @@ import { Layout } from "./components/Layout";
 import { HomePage } from "./pages/HomePage";
 import { NewEpisodePage } from "./pages/NewEpisodePage";
 import { EpisodeDetailPage } from "./pages/EpisodeDetailPage";
+import { ShareEpisodePage } from "./pages/ShareEpisodePage";
 
 function AuthSecretDialog({ prompt }: { prompt: AuthSecretPrompt | null }) {
   const [secret, setSecret] = useState("");
@@ -75,7 +76,15 @@ export function App() {
   useEffect(() => subscribeAuthSecretPrompt(setAuthPrompt), []);
 
   useEffect(() => {
+    if (route.name === "share") {
+      setHealth(null);
+      setHealthError(null);
+      setHealthLoading(false);
+      return;
+    }
+
     let active = true;
+    setHealthLoading(true);
 
     getHealth()
       .then((nextHealth) => {
@@ -91,7 +100,11 @@ export function App() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [route.name]);
+
+  if (route.name === "share") {
+    return <ShareEpisodePage id={route.id} />;
+  }
 
   return (
     <>
