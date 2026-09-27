@@ -1,75 +1,111 @@
+export type Backend = "qwen" | "whisper" | "mimo";
+export type JobStatus = "queued" | "running" | "done" | "error";
+export type ArtifactName =
+  "transcript.txt" | "article.md" | "notes.md" | "mindmap.md";
+
 export type Health = {
-  ffmpeg: boolean;
-  ffprobe: boolean;
-  output_writable: boolean;
-  mimo_key: boolean;
-  llm_key: boolean;
+  ok: boolean;
+  read_only: boolean;
+  worker?: "single";
+  ffmpeg?: boolean;
+  agy?: boolean;
+  backends?: { qwen?: boolean; whisper: boolean; mimo: boolean };
 };
 
-export type EpisodeListItem = {
+export type EpisodeInfo = {
+  title?: string;
+  description?: string;
+  podcast_title?: string;
+  url?: string;
+  [key: string]: unknown;
+};
+
+export type Job = {
+  id: string;
+  filename: string;
+  status: JobStatus;
+  stage: string;
+  error?: string;
+  result_url?: string;
+  backend: Backend;
+  skip_diarization: boolean;
+  num_speakers: number | null;
+  episode_url: string | null;
+  episode?: EpisodeInfo;
+  created_at: string;
+  updated_at: string;
+  available_files: string[];
+  can_resume_transcription?: boolean;
+};
+
+export type Subscription = {
+  id: number;
+  podcast_id: string;
+  title: string;
+  author: string;
+  description: string;
+  source_url: string;
+  enabled: boolean;
+  done_count: number;
+  pending_count: number;
+  processing_count: number;
+  failed_count: number;
+  poll_interval_minutes: number;
+  backend: Backend;
+  skip_diarization: boolean;
+  num_speakers: number | null;
+};
+
+export type SubscriptionEpisodeStatus =
+  "pending" | "processing" | "done" | "failed" | "ignored" | "skipped";
+
+export type SubscriptionEpisode = {
+  id: number;
+  eid: string;
+  title: string;
+  episode_url: string;
+  status: SubscriptionEpisodeStatus;
+  published_at: string;
+  duration: number;
+  backend?: Backend;
+  skip_diarization?: boolean;
+  num_speakers?: number | null;
+  error?: string;
+  result_dir?: string | null;
+  job_id?: string | null;
+  available_files?: string[];
+};
+
+export type PublicEpisode = {
+  id: number;
+  eid: string;
+  episode_url: string;
+  title: string;
+  description: string;
+  published_at: string;
+  duration: number;
+  status: SubscriptionEpisodeStatus;
+  has_result: boolean;
+  available_files?: string[];
+};
+
+export type PublicJob = {
   id: string;
   title: string;
   podcast_title: string;
-  duration: number;
-  has_transcript: boolean;
-  has_summary: boolean;
+  description: string;
+  published_at: string | null;
+  episode_url: string | null;
+  available_files: string[];
 };
 
-export type EpisodeDetail = EpisodeListItem & {
-  description?: string;
-  shownotes?: string;
-  audio_url?: string;
-  has_audio: boolean;
-};
-
-export type TaskState = {
-  task_id: string;
-  episode_id: string | null;
-  stage:
-    | "fetching_info"
-    | "downloading"
-    | "splitting"
-    | "transcribing"
-    | "summarizing"
-    | "done"
-    | "error";
-  done: number | null;
-  total: number | null;
-  status: "running" | "done" | "error";
-  error: string | null;
-};
-
-export type RegenerateRequest = {
-  transcript: boolean;
-  summary: boolean;
-};
-
-export type SummarySegment = {
-  time: string;
-  title: string | null;
-  text: string;
-};
-
-export type MindmapTag = "概念" | "方法" | "反直觉" | "案例" | "事件" | "人物" | "书";
-
-export type MindmapNode = {
-  text: string;
-  tag: MindmapTag | null;
-  children: MindmapNode[];
-};
-
-export type WorthItem = {
-  type: string;
+export type LibraryGroup = {
   title: string;
-  by: string | null;
-  note: string;
+  articles: Array<{ kind: "job" | "episode"; id: string | number; title: string; published_at: string | null; url: string }>;
 };
 
-export type SummaryData = {
-  overview: SummarySegment[];
-  mindmap: {
-    note: string | null;
-    nodes: MindmapNode[];
-  };
-  worth_following: WorthItem[];
+export type ProcessingOptions = {
+  backend: Backend;
+  skip_diarization: boolean;
+  num_speakers: number | null;
 };

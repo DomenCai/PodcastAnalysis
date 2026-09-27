@@ -1,141 +1,74 @@
-# Podcast Analysis
+# PodcastAnalysis — 播客转文章
 
-小宇宙播客分析工具 —— 从链接到逐字稿和摘要的一站式 CLI。
+本项目负责小宇宙订阅、下载、持久任务、agy 文章生成和 React 阅读；相邻 `whisper` 项目只提供 HTTP 转录 API。默认 Qwen，MiMo 可选。Whisper 和说话人分离保留在本地管理页。
 
-## 流程
+## 安装与本地运行
 
-```
-小宇宙链接 → 抓取元数据 → 下载音频 → 切片 + 语音转文字 → 可选摘要
-```
-
-## 依赖
-
-- Python >= 3.11
-- [uv](https://docs.astral.sh/uv/)
-- [ffmpeg / ffprobe](https://ffmpeg.org/)（音频处理）
-- [MiMo](https://platform.xiaomimimo.com/) API Key（语音识别）
-- 任意 OpenAI 兼容 LLM API Key（摘要，可选）
-
-## 安装
+需要 Python 3.12～3.13、uv、Node 22+、ffmpeg，以及已安装并登录的 `agy`。先按 `../whisper/README.md` 启动 ASR，再执行：
 
 ```bash
-uv sync
-cp .env.example .env
-# 编辑 .env 填入 API Key
+uv sync --frozen --dev
+cd web && npm ci && npm run build && cd ..
+uv run --no-sync python -m server.app
+# http://127.0.0.1:18000 本地管理页
 ```
 
-## 使用
+只读阅读服务单独启动，公网隧道只能指向它：
 
 ```bash
-# 基本用法：抓取 + 下载 + 转录
-uv run python -m cli.analyze "https://www.xiaoyuzhoufm.com/episode/<id>"
-
-# 跳过下载（已有音频时）
-uv run python -m cli.analyze "https://www.xiaoyuzhoufm.com/episode/<id>" --skip-download
-
-# 生成摘要
-uv run python -m cli.analyze "https://www.xiaoyuzhoufm.com/episode/<id>" --summary
-
-# 保存切片音频（调试用）
-uv run python -m cli.analyze "https://www.xiaoyuzhoufm.com/episode/<id>" --keep-splits
-
-# 指定输出目录
-uv run python -m cli.analyze "https://www.xiaoyuzhoufm.com/episode/<id>" -o my_output
+uv run --no-sync python -m server.public_app
+# http://127.0.0.1:8001/podcasts
 ```
 
-## 切片策略
+公网根路径 `/` 返回 404。固定入口 `/podcasts` 按播客分组列出已完成内容，点击直接阅读文章、笔记、导图与逐字稿。手动任务和订阅任务都可公开阅读；详情页没有返回列表的导航。管理/上传/ASR API 仅在 localhost 开放。
 
-默认以 `-20dB / 0.2s` 检测普通静音。切片时先在 `cursor+8` 到 `cursor+30` 区间找最长静音；如果最长静音达到 `0.8s`，就切在这个静音中点。否则回退到 `cursor+10` 到 `cursor+20` 区间找最长普通静音；仍找不到时，切在 `cursor+20`。
+`./analysis <小宇宙单集链接或本地音频>` 通过管理 API 提交任务，`--backend mimo` 选择 MiMo，`--analyze-only <JOB_ID>` 仅重新生成文章。管理端只有一个任务 worker，订阅每 30 分钟检查一次。失败任务可重试，逐字稿完成后可只重新分析；处理成功会清理临时上传音频。
 
-直接切本地音频时，可以用这些参数调整策略：
+文章分析默认由 `gemini-3.1-pro-high` 分两阶段完成：先生成文章、笔记和导图，再对照完整逐字稿核稿。文章保留说话人的口吻，笔记按内容关系组织，时间戳仅辅助回听。核稿检查的是转述是否忠实，不是对节目观点做外部事实验证。
+
+管理服务环境变量 `PODCAST_AGY_MODEL` 可选择其他 Gemini 模型。`PODCAST_AGY_STYLE_EDIT=true` 才启用可选 Opus 语言编辑（默认关闭）：只读文章和少量口吻样本，最多返回八处局部修改，不负责事实鉴定、重选内容或改写笔记。`WHISPER_AGY_TIMEOUT_SECONDS` 是每次模型调用的超时，不是整个分析任务的总时长。配置需导出到管理进程环境；项目不会自动加载 `.env`。
+
+失败后使用“仅重新分析”会复用已完成阶段；已成功的任务再次分析则开启新一轮。检查点保存在结果目录的 `.analysis/`，发布前旧文件保存在该轮的 `before-publication/`。Opus 失败时保留 Gemini 成稿，可稍后重试润色，或关闭润色并重试以发布 Gemini 版本。详见 [运维说明](docs/operations.md)。
+
+## 飞书私聊机器人
+
+机器人是 `bot/` 下的独立 Node 程序，使用 `@larksuite/channel` 长连接与 schema 2.0 卡片，只调用本地管理 API。首次运行：
 
 ```bash
-uv run python -m cli.split_audio output/<episode_id>/audio.m4a --long-search-start 8 --long-search-end 30 --target 10 --max-sec 20 --long-silence-sec 0.8
+cd bot
+npm ci
+npm run setup  # 扫码创建独立飞书应用并绑定 owner
+npm start
 ```
 
-## Web 界面
+凭据保存在 `bot/data/lark.json`，不会复用其他机器人。给机器人私聊发送 `/help`，再通过卡片选择“处理单集”或“订阅播客”；裸链接不会直接执行。订阅初始可选仅未来更新、最新 1 集、最新 3 集，默认最新 1 集。卡片还可查看任务、暂停/恢复订阅、立即检查更新、重试失败、只重新生成文章，并打开阅读页。处理完成或失败会私聊通知。非 owner 与群聊请求均被拒绝。
 
-Web 界面仍复用同一套 Python 处理流程，运行前需要完成上面的 Python / uv / ffmpeg / ffprobe / `.env` 配置。
+## 数据与常驻运行
 
-首次使用或前端改动后，先构建前端：
+历史播客数据已复制到本项目 `data/`：原 `whisper/data/jobs`、数据库、`whisper/out/agy` 均保留原位作源备份；验证目录保存于 `data/validation-backup/`。迁移脚本默认为 dry-run：
 
 ```bash
-cd web
-npm install
-npm run build
-cd ..
+.venv/bin/python -m scripts.migrate_history
+# 仅在目标 data 不存在、旧服务已停止时：
+.venv/bin/python -m scripts.migrate_history --apply
 ```
 
-之后在仓库根目录一条命令启动本机 Web 服务：
+macOS 常驻四服务（ASR、管理、只读、机器人）的 launchd 工具。两边 Python 都使用各自 `.venv`，首次使用前完成两项目安装、前端构建及机器人 `npm ci`：
 
 ```bash
-uv run python -m server.app
+.venv/bin/python -m scripts.services status
+.venv/bin/python -m scripts.services start
+.venv/bin/python -m scripts.services stop bot
 ```
 
-该命令默认监听 `127.0.0.1:8000`，并自动打开浏览器。也可以用 uvicorn 启动：
+启动命令由 `zsh -lc` 执行，继承用户 `.zshenv` 中的 `MIMO_API_KEY`；不自动加载 `.env.example`，也不会用空值覆盖已有密钥。手动运行、命令行、前端开发代理与常驻服务统一默认端口：ASR `18010`、管理 `18000`、只读 `8001`，只读服务对应 `podcast.fullai.top`。若手动运行时使用不同端口，设置 `TRANSCRIPTION_API_URL`、`PODCAST_API_URL`、`PUBLIC_PORT` 等变量；完整配置见 `.env.example`。
+
+## 验证
 
 ```bash
-uv run uvicorn server.app:app
+uv run --no-sync pytest -q
+cd web && npm test && npm run build
+cd ../bot && npm test
 ```
 
-此方式同样默认服务 Web 界面和 `/api/*`，浏览器手动打开 `http://127.0.0.1:8000` 即可。
-
-## 鉴权
-
-Web 服务支持最简单的访问密码。默认不启用；在 `.env` 里配置 `AUTH_SECRET` 后，`/api/*` 请求会要求带上访问密码：
-
-```bash
-AUTH_SECRET=change-this-password
-```
-
-访问时可以打开 `http://server:8000/?secret=change-this-password` 自动通过鉴权；如果没有带 `secret`，页面会在第一次请求 API 时弹出密码输入框。云服务器部署时建议务必开启鉴权，并在反向代理上配置 HTTPS。
-
-## Docker Compose 部署
-
-先准备 `.env`，填入 API Key 和访问密码：
-
-```bash
-cp .env.example .env
-# 编辑 .env，至少配置 MIMO_API_KEY、AUTH_SECRET；需要摘要时配置 LLM_API_KEY
-```
-
-启动：
-
-```bash
-docker compose up -d --build
-```
-
-默认端口映射为 `127.0.0.1:8000:8000`，适合在云服务器上由 Nginx / Caddy 反向代理到本服务。处理结果通过 `./output:/app/output` 挂载持久化，重建容器不会丢已有音频、逐字稿和摘要。
-
-## 输出结构
-
-```
-output/<episode_id>/
-├── meta.json         # 节目元数据
-├── audio.m4a         # 原始音频
-├── transcript.txt    # 逐字稿（带时间戳）
-├── summary.md       # 摘要（--summary 时生成）
-└── split/            # 切片音频（--keep-splits 时保留）
-```
-
-## 配置
-
-通过 `.env` 文件配置，参考 `.env.example`：
-
-| 变量 | 必填 | 说明 |
-|------|------|------|
-| `MIMO_API_KEY` | 是 | MiMo 语音识别 API Key |
-| `MIMO_BASE_URL` | 否 | MiMo 服务地址，默认 `https://token-plan-cn.xiaomimimo.com/v1` |
-| `LLM_BASE_URL` | 否 | LLM 服务地址，默认 OpenAI |
-| `LLM_API_KEY` | 摘要时 | LLM API Key |
-| `LLM_MODEL` | 否 | 模型名，默认 `gpt-4o-mini` |
-| `STT_MAX_WORKERS` | 否 | 转录并发数，默认 `4` |
-| `STT_REQUESTS_PER_MINUTE` | 否 | MiMo 转录请求限速，默认 `90` |
-| `STT_RATE_LIMIT_RETRIES` | 否 | 429 限流重试次数，默认 `2` |
-| `AUTH_SECRET` | Docker 部署建议 | Web 访问密码；Docker Compose 部署必须设置 |
-
-## 测试
-
-```bash
-uv run pytest
-```
+架构和运维细节见 [架构说明](docs/architecture.md)、[运维说明](docs/operations.md)；当前未提交改动按项目职责整理于 [改动清单](docs/change-inventory.md)。

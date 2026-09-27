@@ -1,30 +1,31 @@
-import { Moon, Sun, type LucideIcon } from "lucide-react";
-import { useTheme, type Theme } from "../lib/theme";
+import { Moon, Sun } from "lucide-react";
+import { useEffect, useState } from "react";
 
-const options: Array<{ theme: Theme; label: string; icon: LucideIcon }> = [
-  { theme: "light", label: "亮色主题", icon: Sun },
-  { theme: "dark", label: "暗色主题", icon: Moon }
-];
+type Theme = "light" | "dark";
 
 export function ThemeToggle() {
-  const { theme, setTheme } = useTheme();
-
+  const [theme, setTheme] = useState<Theme>(() =>
+    document.documentElement.dataset.theme === "dark" ? "dark" : "light",
+  );
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    try {
+      localStorage.setItem("whisper-theme", theme);
+    } catch {
+      /* Theme still works in memory. */
+    }
+  }, [theme]);
+  const Icon = theme === "dark" ? Sun : Moon;
   return (
-    <div className="theme-toggle" aria-label="主题切换">
-      {options.map(({ theme: optionTheme, label, icon: Icon }) => (
-        <button
-          key={optionTheme}
-          type="button"
-          className="theme-toggle-button"
-          data-active={theme === optionTheme ? "true" : undefined}
-          aria-label={label}
-          aria-pressed={theme === optionTheme}
-          title={label}
-          onClick={() => setTheme(optionTheme)}
-        >
-          <Icon className="h-4 w-4" />
-        </button>
-      ))}
-    </div>
+    <button
+      type="button"
+      className="icon-button"
+      aria-label={theme === "dark" ? "切换浅色主题" : "切换深色主题"}
+      title={theme === "dark" ? "浅色主题" : "深色主题"}
+      onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+    >
+      <Icon size={17} />
+    </button>
   );
 }

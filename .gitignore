@@ -1,18 +1,21 @@
-# 环境变量（含密钥，禁止提交）
-.env
+# 模型权重（1.5G，别提交，也别删——重下要 6 分钟）
+models/
 
-# 输出产物
-output/
+# 音频与转写产物
+audio/
+out/
+data/
 
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-.pytest_cache/
-
-# 虚拟环境
 .venv/
-venv/
-
-# 系统
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
 .DS_Store
+.pytest_cache/
+web/node_modules/
+web/dist/
+web/*.tsbuildinfo
+bot/node_modules/
+bot/data/

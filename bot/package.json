@@ -1,0 +1,12 @@
+{
+  "name": "podcast-lark-bot",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "setup": "node src/setup.js",
+    "start": "node src/bot.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": { "@larksuite/channel": "^0.2.0" }
+}

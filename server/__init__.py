@@ -1,3 +1,1 @@
-from server.app import app
-
-__all__ = ["app"]
+"""本地音频转文字服务。"""

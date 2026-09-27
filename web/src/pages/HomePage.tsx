@@ -1,137 +1,203 @@
-import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Clock3, FileText, MicVocal, Plus, Search, Sparkles } from "lucide-react";
-import { getEpisodes } from "../lib/api";
-import { formatDuration } from "../lib/format";
+import {
+  ArrowRight,
+  CheckCircle2,
+  Clock3,
+  FileText,
+  Plus,
+  Radio,
+  Sparkles,
+} from "lucide-react";
+import { useEffect, useState } from "react";
+import { api, messageOf } from "../lib/api";
+import type { Health, Job, Subscription } from "../lib/types";
+import { formatDate, stageLabel } from "../lib/format";
 import { navigate } from "../lib/routing";
-import type { EpisodeListItem } from "../lib/types";
-import { ErrorState } from "../components/ErrorState";
-import { LoadingState } from "../components/LoadingState";
+import { StatusBadge } from "../components/Status";
+import { Empty, ErrorState, Loading } from "../components/States";
 
-function EpisodeCard({ episode }: { episode: EpisodeListItem }) {
+export function HomePage({ health }: { health: Health }) {
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    const request = health.read_only
+      ? api.subscriptions().then((items) => {
+          if (live) setSubscriptions(items);
+        })
+      : Promise.all([api.jobs(), api.subscriptions()]).then(
+          ([nextJobs, nextSubscriptions]) => {
+            if (live) {
+              setJobs(nextJobs);
+              setSubscriptions(nextSubscriptions);
+            }
+          },
+        );
+    request
+      .catch((err) => {
+        if (live) setError(messageOf(err, "首页加载失败"));
+      })
+      .finally(() => {
+        if (live) setLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [health.read_only]);
+  if (loading) return <Loading label="正在读取播客内容" />;
+  if (error) return <ErrorState message={error} />;
+
+  if (health.read_only)
+    return (
+      <section>
+        <header className="page-head">
+          <div>
+            <span className="eyebrow">PUBLIC LIBRARY</span>
+            <h1>播客阅读</h1>
+            <p>从逐字稿到文章、笔记与思维导图，安静地读完一期播客。</p>
+          </div>
+        </header>
+        <PodcastGrid subscriptions={subscriptions} />
+      </section>
+    );
+
+  const active = jobs.filter(
+    (job) => job.status === "queued" || job.status === "running",
+  );
+  const complete = jobs.filter((job) => job.status === "done").length;
   return (
-    <button className="episode-card group" onClick={() => navigate(`/episodes/${episode.id}`)}>
-      <div className="flex min-w-0 items-start gap-3">
-        <span className="episode-cover">
-          <MicVocal className="h-5 w-5" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <h2 className="item-title line-clamp-2 text-base leading-snug">
-            {episode.title || episode.id}
-          </h2>
-          <p className="mt-1 truncate text-sm text-muted">{episode.podcast_title || "未知播客"}</p>
+    <section className="stack-xl">
+      <header className="page-head split">
+        <div>
+          <span className="eyebrow">LOCAL WORKSPACE</span>
+          <h1>工作台</h1>
+          <p>默认使用 Qwen3-ASR 转写，每次都由 Agy 生成三种阅读产物。</p>
+        </div>
+        <button className="primary" onClick={() => navigate("/new")}>
+          <Plus size={17} />
+          新建任务
+        </button>
+      </header>
+      <div className="metric-grid">
+        <div className="metric">
+          <Clock3 />
+          <span>
+            <b>{active.length}</b>
+            <small>处理中</small>
+          </span>
+        </div>
+        <div className="metric">
+          <CheckCircle2 />
+          <span>
+            <b>{complete}</b>
+            <small>已完成任务</small>
+          </span>
+        </div>
+        <div className="metric">
+          <Radio />
+          <span>
+            <b>{subscriptions.filter((item) => item.enabled).length}</b>
+            <small>活跃订阅</small>
+          </span>
+        </div>
+        <div className="metric">
+          <Sparkles />
+          <span>
+            <b>{health.agy ? "就绪" : "不可用"}</b>
+            <small>Agy 分析</small>
+          </span>
         </div>
       </div>
-
-      <div className="mt-auto flex flex-wrap items-center gap-2 text-xs">
-        <span className="chip chip-neutral">
-          <Clock3 className="h-3.5 w-3.5" />
-          {formatDuration(episode.duration)}
-        </span>
-        <span className={episode.has_transcript ? "chip chip-success" : "chip chip-neutral"}>
-          <FileText className="h-3.5 w-3.5" />
-          {episode.has_transcript ? "已转录" : "未转录"}
-        </span>
-        <span className={episode.has_summary ? "chip chip-success" : "chip chip-neutral"}>
-          {episode.has_summary ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5" />}
-          {episode.has_summary ? "已摘要" : "未摘要"}
-        </span>
-      </div>
-    </button>
+      <section>
+        <div className="section-head">
+          <div>
+            <h2>最近任务</h2>
+            <p>单任务 worker 按顺序处理</p>
+          </div>
+          <button className="text-button" onClick={() => navigate("/jobs")}>
+            查看全部 <ArrowRight size={15} />
+          </button>
+        </div>
+        {jobs.length ? (
+          <div className="list-card">
+            {jobs.slice(0, 5).map((job) => (
+              <button
+                className="list-row"
+                key={job.id}
+                onClick={() => navigate(`/jobs/${job.id}`)}
+              >
+                <FileText size={18} />
+                <span className="row-main">
+                  <strong>
+                    {job.episode?.title || job.filename || "未命名任务"}
+                  </strong>
+                  <small>
+                    {stageLabel(job.stage)} · {formatDate(job.updated_at)}
+                  </small>
+                </span>
+                <StatusBadge status={job.status} />
+                <ArrowRight size={16} />
+              </button>
+            ))}
+          </div>
+        ) : (
+          <Empty
+            title="还没有任务"
+            description="上传音频或粘贴小宇宙单集链接开始。"
+          />
+        )}
+      </section>
+      <section>
+        <div className="section-head">
+          <div>
+            <h2>播客订阅</h2>
+            <p>自动发现并处理新单集</p>
+          </div>
+          <button
+            className="text-button"
+            onClick={() => navigate("/subscriptions")}
+          >
+            管理订阅 <ArrowRight size={15} />
+          </button>
+        </div>
+        <PodcastGrid subscriptions={subscriptions} />
+      </section>
+    </section>
   );
 }
 
-export function HomePage() {
-  const [episodes, setEpisodes] = useState<EpisodeListItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-
-  useEffect(() => {
-    let active = true;
-
-    getEpisodes()
-      .then((items) => {
-        if (active) setEpisodes(items);
-      })
-      .catch((err: unknown) => {
-        if (active) setError(err instanceof Error ? err.message : "节目库加载失败");
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  const filtered = useMemo(() => {
-    const keyword = query.trim().toLowerCase();
-    if (!keyword) return episodes;
-    return episodes.filter(
-      (item) =>
-        item.title?.toLowerCase().includes(keyword) ||
-        item.podcast_title?.toLowerCase().includes(keyword)
+export function PodcastGrid({
+  subscriptions,
+}: {
+  subscriptions: Subscription[];
+}) {
+  if (!subscriptions.length)
+    return (
+      <Empty title="暂无可读播客" description="内容发布后会出现在这里。" />
     );
-  }, [episodes, query]);
-
   return (
-    <section className="space-y-7">
-      <div className="page-header flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="page-title">节目库</h1>
-          <p className="page-subtitle mt-1 text-sm">本地已处理节目：{episodes.length} 集</p>
-        </div>
-        <div className="flex items-center gap-3">
-          {episodes.length > 0 && (
-            <label className="search-field">
-              <Search className="search-icon" />
-              <input
-                className="text-input"
-                type="search"
-                value={query}
-                placeholder="搜索节目…"
-                onChange={(event) => setQuery(event.target.value)}
-              />
-            </label>
-          )}
-          <button className="primary-button" onClick={() => navigate("/new")}>
-            <Plus className="h-4 w-4" />
-            新建处理
-          </button>
-        </div>
-      </div>
-
-      {loading && <LoadingState label="正在读取节目库" />}
-      {error && <ErrorState message={error} />}
-
-      {!loading && !error && episodes.length === 0 && (
-        <div className="panel flex flex-col items-center gap-4 p-12 text-center">
-          <span className="episode-cover h-14 w-14">
-            <MicVocal className="h-6 w-6" />
+    <div className="podcast-grid">
+      {subscriptions.map((item) => (
+        <a
+          href={`/podcasts/${item.id}`}
+          className="podcast-card"
+          key={item.id}
+          onClick={(event) => {
+            event.preventDefault();
+            navigate(`/podcasts/${item.id}`);
+          }}
+        >
+          <span className="podcast-art">
+            <Radio size={24} />
           </span>
           <div>
-            <p className="section-title">暂无节目</p>
-            <p className="mt-1 text-sm text-muted">开始你的第一次分析吧，粘贴小宇宙节目链接即可。</p>
+            <h2>{item.title || "未命名播客"}</h2>
+            <p>{item.author || "小宇宙播客"}</p>
           </div>
-          <button className="primary-button" onClick={() => navigate("/new")}>
-            <Plus className="h-4 w-4" />
-            新建处理
-          </button>
-        </div>
-      )}
-
-      {!loading && !error && episodes.length > 0 && filtered.length === 0 && (
-        <div className="empty-panel">没有匹配「{query}」的节目</div>
-      )}
-
-      {!loading && !error && filtered.length > 0 && (
-        <div className="episode-grid">
-          {filtered.map((episode) => (
-            <EpisodeCard key={episode.id} episode={episode} />
-          ))}
-        </div>
-      )}
-    </section>
+          <small>{item.done_count} 集可读</small>
+        </a>
+      ))}
+    </div>
   );
 }

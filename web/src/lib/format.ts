@@ -1,50 +1,64 @@
-import type { TaskState } from "./types";
+import type { Backend, JobStatus, SubscriptionEpisodeStatus } from "./types";
 
-export function formatDuration(seconds: number | null | undefined): string {
-  if (!seconds || seconds < 0) {
-    return "未知时长";
-  }
-
-  const total = Math.round(seconds);
-  const hours = Math.floor(total / 3600);
-  const minutes = Math.floor((total % 3600) / 60);
-  const rest = total % 60;
-
-  if (hours > 0) {
-    return `${hours}:${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
-  }
-
-  return `${minutes}:${String(rest).padStart(2, "0")}`;
+export function formatDate(value?: string | null): string {
+  if (!value) return "时间未知";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
-export function getDescription(meta: { description?: string; shownotes?: string }): string {
-  return meta.description?.trim() || meta.shownotes?.trim() || "";
+export function formatDuration(seconds?: number | null): string {
+  if (seconds == null || seconds < 0) return "时长未知";
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return hours ? `${hours} 小时 ${minutes} 分钟` : `${minutes} 分钟`;
+}
+
+export const backendLabel = (backend?: Backend) =>
+  backend === "qwen" ? "Qwen3-ASR" : backend === "mimo" ? "MiMo" : "Whisper";
+
+export function statusLabel(
+  status: JobStatus | SubscriptionEpisodeStatus,
+): string {
+  return (
+    (
+      {
+        queued: "排队中",
+        running: "处理中",
+        done: "已完成",
+        error: "失败",
+        pending: "等待中",
+        processing: "处理中",
+        failed: "失败",
+        ignored: "已忽略",
+        skipped: "已跳过",
+      } as Record<string, string>
+    )[status] ?? status
+  );
 }
 
 export function stageLabel(stage: string): string {
-  const labels: Record<string, string> = {
-    fetching_info: "获取元数据",
-    downloading: "下载音频",
-    splitting: "切片",
-    transcribing: "转录",
-    summarizing: "摘要",
-    done: "完成",
-    error: "失败"
-  };
-  return labels[stage] || stage;
-}
-
-export function stageProgressText(task: Pick<TaskState, "stage" | "done" | "total">): string | null {
-  if (task.done == null || task.total == null || task.total <= 0) {
-    return null;
-  }
-
-  if (task.stage === "splitting") {
-    return `${task.done}/${task.total} 完成`;
-  }
-  if (task.stage === "transcribing") {
-    return `${task.done}/${task.total} · ${Math.round((task.done / task.total) * 100)}%`;
-  }
-
-  return null;
+  return (
+    (
+      {
+        queued: "等待单任务 worker",
+        starting: "准备处理",
+        archiving: "归档上一版产物",
+        fetching: "获取节目与音频",
+        downloading: "获取音频",
+        converting: "转换音频格式",
+        transcribing: "转写与错字清理",
+        diarizing: "识别说话人",
+        analyzing: "生成文章、笔记与导图",
+        done: "处理完成",
+        error: "处理失败",
+      } as Record<string, string>
+    )[stage] ?? stage
+  );
 }

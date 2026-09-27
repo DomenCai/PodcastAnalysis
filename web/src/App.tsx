@@ -1,119 +1,101 @@
-import { type FormEvent, useEffect, useRef, useState } from "react";
-import {
-  type AuthSecretPrompt,
-  getHealth,
-  submitAuthSecret,
-  subscribeAuthSecretPrompt
-} from "./lib/api";
-import { parseRoute, type Route } from "./lib/routing";
+import { useEffect, useState } from "react";
+import { api, messageOf } from "./lib/api";
+import { navigate, parseRoute, type Route } from "./lib/routing";
 import type { Health } from "./lib/types";
 import { Layout } from "./components/Layout";
+import { ErrorState, Loading } from "./components/States";
 import { HomePage } from "./pages/HomePage";
-import { NewEpisodePage } from "./pages/NewEpisodePage";
-import { EpisodeDetailPage } from "./pages/EpisodeDetailPage";
-import { ShareEpisodePage } from "./pages/ShareEpisodePage";
+import { JobsPage } from "./pages/JobsPage";
+import { NewJobPage } from "./pages/NewJobPage";
+import { JobDetailPage } from "./pages/JobDetailPage";
+import { SubscriptionsPage } from "./pages/SubscriptionsPage";
+import { PodcastPage } from "./pages/PodcastPage";
+import { EpisodePage } from "./pages/EpisodePage";
+import { PublicLibraryPage } from "./pages/PublicLibraryPage";
+import { PublicJobPage } from "./pages/PublicJobPage";
 
-function AuthSecretDialog({ prompt }: { prompt: AuthSecretPrompt | null }) {
-  const [secret, setSecret] = useState("");
-  const inputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    if (!prompt) return;
-    setSecret("");
-    window.setTimeout(() => inputRef.current?.focus(), 0);
-  }, [prompt]);
-
-  if (!prompt) {
-    return null;
+function Page({ route, health }: { route: Route; health: Health }) {
+  if (health.read_only && route.name === "job") return <PublicJobPage id={route.id} />;
+  if (health.read_only && route.name === "library") return <PublicLibraryPage />;
+  if (health.read_only && (route.name === "jobs" || route.name === "new" || route.name === "subscriptions" || route.name === "home")) {
+    return (
+      <ErrorState
+        message="此页面仅在本地工作台开放。"
+        action={
+          undefined
+        }
+      />
+    );
   }
-
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!secret.trim()) return;
-    submitAuthSecret(secret);
-  }
-
-  return (
-    <div className="modal-backdrop">
-      <form className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="auth-dialog-title" onSubmit={handleSubmit}>
-        <h2 id="auth-dialog-title" className="section-title">访问密码</h2>
-        <p className="mt-2 text-sm text-soft">
-          {prompt.error ? "密码不正确，请重新输入。" : "请输入访问密码继续。"}
-        </p>
-        <label className="field-label mt-5" htmlFor="auth-secret-input">密码</label>
-        <input
-          ref={inputRef}
-          id="auth-secret-input"
-          className="text-input"
-          type="password"
-          autoComplete="current-password"
-          value={secret}
-          onChange={(event) => setSecret(event.currentTarget.value)}
+  switch (route.name) {
+    case "home":
+      return <HomePage health={health} />;
+    case "library":
+      return <PublicLibraryPage />;
+    case "jobs":
+      return <JobsPage />;
+    case "new":
+      return <NewJobPage health={health} />;
+    case "job":
+      return <JobDetailPage id={route.id} health={health} />;
+    case "subscriptions":
+      return <SubscriptionsPage health={health} />;
+    case "podcast":
+      return <PodcastPage id={route.id} />;
+    case "episode":
+      return <EpisodePage id={route.id} />;
+    default:
+      return (
+        <ErrorState
+          message="页面不存在。"
+          action={
+            <button className="danger-link" onClick={() => navigate("/")}>
+              返回首页
+            </button>
+          }
         />
-        <div className="modal-actions">
-          <button type="submit" className="primary-button" disabled={!secret.trim()}>
-            进入
-          </button>
-        </div>
-      </form>
-    </div>
-  );
+      );
+  }
 }
 
 export function App() {
-  const [route, setRoute] = useState<Route>(() => parseRoute(window.location.pathname));
-  const [health, setHealth] = useState<Health | null>(null);
-  const [healthLoading, setHealthLoading] = useState(true);
-  const [healthError, setHealthError] = useState<string | null>(null);
-  const [authPrompt, setAuthPrompt] = useState<AuthSecretPrompt | null>(null);
-
+  const [route, setRoute] = useState(() => parseRoute(location.pathname)),
+    [health, setHealth] = useState<Health | null>(null),
+    [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    const handleRoute = () => setRoute(parseRoute(window.location.pathname));
-    window.addEventListener("popstate", handleRoute);
-    return () => window.removeEventListener("popstate", handleRoute);
+    const update = () => setRoute(parseRoute(location.pathname));
+    addEventListener("popstate", update);
+    return () => removeEventListener("popstate", update);
   }, []);
-
-  useEffect(() => subscribeAuthSecretPrompt(setAuthPrompt), []);
-
   useEffect(() => {
-    if (route.name === "share") {
-      setHealth(null);
-      setHealthError(null);
-      setHealthLoading(false);
-      return;
-    }
-
-    let active = true;
-    setHealthLoading(true);
-
-    getHealth()
-      .then((nextHealth) => {
-        if (active) setHealth(nextHealth);
+    let live = true;
+    api
+      .health()
+      .then((data) => {
+        if (live) setHealth(data);
       })
-      .catch((err: unknown) => {
-        if (active) setHealthError(err instanceof Error ? err.message : "环境检查失败");
-      })
-      .finally(() => {
-        if (active) setHealthLoading(false);
+      .catch((err) => {
+        if (live) setError(messageOf(err, "无法连接服务"));
       });
-
     return () => {
-      active = false;
+      live = false;
     };
-  }, [route.name]);
-
-  if (route.name === "share") {
-    return <ShareEpisodePage id={route.id} />;
-  }
-
+  }, []);
+  if (error)
+    return (
+      <main className="boot">
+        <ErrorState message={error} />
+      </main>
+    );
+  if (!health)
+    return (
+      <main className="boot">
+        <Loading label="正在检查服务状态" />
+      </main>
+    );
   return (
-    <>
-      <Layout health={health} healthLoading={healthLoading} healthError={healthError}>
-        {route.name === "home" && <HomePage />}
-        {route.name === "new" && <NewEpisodePage health={health} />}
-        {route.name === "episode" && <EpisodeDetailPage id={route.id} />}
-      </Layout>
-      <AuthSecretDialog prompt={authPrompt} />
-    </>
+    <Layout health={health}>
+      <Page route={route} health={health} />
+    </Layout>
   );
 }
