@@ -35,3 +35,33 @@ ASR 主 `.venv` 已按锁文件补齐 local/dev 依赖，launchd 改用该环境
 启动脚本先解析全部目标运行环境，再停现有服务，避免运行文件缺失时先中断服务；Python 服务不再要求 Node 存在。`restart` 仍需在队列空闲时手动执行，并在重启后检查健康接口；脚本不等于部署事务或自动回滚器。
 
 整理前快照保存在 `out/maintenance-20260928/before/`，分别包含两仓库的 Git 状态、工作树 patch 和未提交文件副本。项目目录、模型、数据库、历史产物及原环境均未删除或搬迁。改动分组见 [change-inventory.md](change-inventory.md)。
+
+
+## 2026-10-01 目录搬迁
+
+当前项目为 `/Users/domenxxt/Documents/PodcastWorkspace/PodcastAnalysis`，ASR 为相邻 `../whisper`。两者保持独立 Git 仓库，通过 HTTP 通信；父目录不建仓库。默认关闭说话人分离，现有 10 个订阅均为 Qwen / `skip_diarization=true`。
+
+停服状态下先核对 `/Users/domenxxt/Documents/PodcastMigrationBackup/` 原备份，并在其 `repair-20261001/` 下使用 SQLite backup API 生成一致性快照，备份活跃任务、历史产物、bot/data 和四份 plist。数据库事务仅更新 36 个 `subscription_episodes.result_dir`，原子写入仅更新 20 个任务 JSON 的 `result_dir`。191 条单集、10 个订阅及 43 个持久任务的数量、状态、ID、updated_at 均保留；通知账本未修改。活跃路径字段无旧项目路径残留，历史错误文本和源备份不改写。
+
+主 `.venv` 按原 Python 3.12.14 和 `uv sync --frozen --dev` 重建；原环境保存在上述备份的 `environments/`。Node 24.16.0、锁文件依赖和软链接检查正常，无需 npm 重装。后端 130 项、前端 9 项、机器人 6 项测试通过，前端构建成功；测试使用临时数据与模拟通知。
+
+使用新位置 `scripts/services.py start asr`、`start manager public`，依赖健康且通知账本校验通过后 `start bot`。四份 plist 的启动目录、Python 入口和日志路径均已更新；服务单进程且未启用 reload。三个健康接口正常，只读服务保持只读，共享 Cloudflare Tunnel 未重启。
+
+迁移核查发现既有缺失：19 个旧任务缺少共 49 个 article/notes/mindmap 文件，另 2 个旧订阅结果无 article.md；原备份也同样缺失。已有逐字稿和文章文件保留且哈希不变，不补跑历史任务。完整验收清单、异常明细及回退步骤见 `/Users/domenxxt/Documents/PodcastMigrationBackup/repair-20261001/report.md`。
+
+浏览器验收：管理页、本地公开列表和旧订阅文章均正常；公网 `/podcasts`、EP88 文章及四类文件读取通过。本地只读写请求返回405，公网链路返回403，根路径均404。未发送测试通知。
+
+恢复服务后的正常订阅轮询会更新数据库的检查时间、源站元数据和单集updated_at，并可能推进sqlite_sequence；这些运行时变化另记于上述备份的runtime-diff.json。停服路径修复本身仅改result_dir，任务JSON时间戳与通知账本保持不变。
+
+
+## 2026-10-01 Obsidian 入库
+
+已配置 `data/obsidian-export.json` 指向 `/Users/domenxxt/Obsidian/forge/forge`。任务完成后写入 `_raw/podcast/播客名/YYMMDD-HHmm-单集中文标题/`，四文件为文章、笔记、思维导图、逐字稿（均 .md）。按用户最新要求，以播客名称分组，不再按月份分层；前缀取上海时区节目发布时间，无发布时间时使用任务创建时间，再回退入库时间。原始发布日期保存在 frontmatter。
+
+首批导入34条完整内容、136个文件，随后已按用户要求改为10个播客分组；21条旧内容缺少部分产物，未生成占位或重跑。导入清单和哈希在 `out/obsidian-export-20261001/manifest.json`，缺失清单在知识库 `.meta/podcast-import-2026-10-01.md`。
+
+`server/obsidian_export.py` 通过来源URL或job id去重，保护已有_raw及用户批注；重新分析不会覆盖已入库稿件。同名不同来源加短标识。四文件先写临时目录再整体发布，失败不改变job状态和updated_at，错误记录在管理服务日志；下次启动管理服务会补试未入库的已完成任务。`enabled: false`或移走配置可停用，不删除已导入文件。无需新增定时服务或依赖。
+
+后端143项测试通过，覆盖完整导出、同源去重、同名冲突、缺失/空文件/符号链接、写入失败恢复、任务成功路径与重启补试。测试全部使用临时知识库和模拟分析，未创建生产任务。队列空闲时仅重启manager，三健康接口200、四服务运行；已有136个导出文件、job JSON及bot通知账本哈希均未变。未提交或推送。
+
+目录调整后相关40项测试通过，包括时区跨日、发布时间缺失回退及自动入库。34个目录重排映射在 `out/obsidian-export-20261001/podcast-group-renames.json`，136个文件内容哈希未变。空闲时重启manager后未重复导入，任务JSON、通知账本哈希不变，三个健康接口200。

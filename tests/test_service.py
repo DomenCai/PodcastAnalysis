@@ -537,3 +537,43 @@ def test_configured_speaker_count(monkeypatch):
     monkeypatch.setenv("WHISPER_NUM_SPEAKERS", "bad")
     with pytest.raises(ValueError, match="正整数"):
         jobs_module._configured_speaker_count()
+
+
+@pytest.mark.parametrize("available", [True, False])
+def test_completion_exports_to_vault_without_affecting_job(isolated, pipeline, available):
+    manager, jobs, _, _ = isolated
+    vault = jobs.parent / "vault"
+    if available:
+        vault.mkdir()
+    (jobs.parent / "obsidian-export.json").write_text(json.dumps({"vault": str(vault)}))
+    with TestClient(app_module.app) as client:
+        job_id = upload(client)
+        assert wait(manager, job_id).status == "done"
+    assert manager.get(job_id).status == "done"
+    articles = list(vault.glob("_raw/podcast/*/*/文章.md"))
+    assert len(articles) == int(available)
+    if available:
+        from server.obsidian_export import FILES
+        assert {p.name for p in articles[0].parent.iterdir()} == set(FILES.values())
+
+
+def test_start_retries_missing_export_without_rewriting_job(isolated):
+    manager, jobs, _, _ = isolated
+    vault = jobs.parent / "vault"
+    vault.mkdir()
+    (jobs.parent / "obsidian-export.json").write_text(json.dumps({"vault": str(vault)}))
+    job_id = "a" * 32
+    directory = jobs / job_id
+    directory.mkdir()
+    state = directory / "job.json"
+    state.write_text(json.dumps({
+        "id": job_id, "filename": "重启补同步", "status": "done", "stage": "done",
+        "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-02T00:00:00Z",
+    }))
+    from server.obsidian_export import FILES
+    for name in FILES:
+        (directory / name).write_text("已完成的历史产物")
+    original = state.read_bytes()
+    manager.start()
+    assert state.read_bytes() == original
+    assert len(list(vault.glob("_raw/podcast/*/*/文章.md"))) == 1

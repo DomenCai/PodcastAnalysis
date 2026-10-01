@@ -19,6 +19,7 @@ from pathlib import Path
 
 from server.job_options import ProcessingOptions
 from server.llm_postprocessor import process_turns
+from server.obsidian_export import export_job
 from server.processing_lock import processing_lock
 from server.transcript_output import add_speaker_labels, build_formatted_text
 from server.transcription_client import transcribe as transcribe_remote
@@ -196,6 +197,8 @@ class JobManager:
             self._started = True
             self._load()
             for job in sorted(self._jobs.values(), key=lambda item: item.created_at):
+                if job.status == "done":
+                    self._export_to_obsidian(job)
                 if job.status not in ACTIVE_STATUSES:
                     continue
                 directory = result_directory(job)
@@ -602,6 +605,11 @@ class JobManager:
             done=None,
             total=None,
         )
+
+        self._export_to_obsidian(self._jobs[job_id])
+
+    def _export_to_obsidian(self, job: Job) -> None:
+        export_job(asdict(job), result_directory(job), JOBS_ROOT.parent / "obsidian-export.json")
 
     def _run_analysis(self, job_id: str) -> None:
         try:
