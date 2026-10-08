@@ -1,7 +1,7 @@
 """Persistent jobs; all manual, subscription and CLI work uses one executor.
 
 Audio is task-local temporary data. Analysis always consumes the saved transcript
-and produces Markdown via agy; it never invokes the legacy JSON note generator.
+and produces Markdown via the configured analysis CLI; it never invokes the legacy JSON note generator.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ ACTIVE_STATUSES = {"queued", "running"}
 
 
 def analyze_markdown(*args, **kwargs):
-    from server.agy_analyzer import analyze
+    from server.analyzer import analyze
 
     return analyze(*args, **kwargs)
 

@@ -123,8 +123,8 @@ export function NewJobPage({ health }: { health: Health }) {
           <span>
             <strong>固定质量流程</strong>
             <small>
-              Whisper 会强制清理错字；转写后始终由 Agy 生成 article.md、notes.md
-              和 mindmap.md。
+              Whisper 会强制清理错字；转写后生成文章、笔记
+              和思维导图。
             </small>
           </span>
           <Sparkles size={18} />

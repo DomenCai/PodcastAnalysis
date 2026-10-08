@@ -102,7 +102,10 @@ export function Layout({
               <small>
                 单任务 Worker · {health.ffmpeg ? "ffmpeg 就绪" : "缺少 ffmpeg"}
               </small>
-              <small>{health.agy ? "Agy 已安装" : "Agy 不可用"}</small>
+              <small>
+                {health.analysis?.backend === "pi" ? "Pi · K3 · high" : "Agy · Gemini"}
+                {health.analysis?.available ? " 已就绪" : " 不可用"}
+              </small>
             </div>
           )}
           <ThemeToggle />

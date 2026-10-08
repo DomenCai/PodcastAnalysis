@@ -64,12 +64,20 @@ app = FastAPI(title="Podcast Notes — private", lifespan=lifespan)
 
 @app.get("/api/health")
 def health() -> dict:
+    from server.analysis_runner import AnalysisConfig
+
+    analysis = AnalysisConfig.from_env()
     return {
         "ok": True,
         "read_only": False,
         "worker": "single",
         "ffmpeg": bool(shutil.which("ffmpeg")),
-        "agy": bool(shutil.which("agy")),
+        "analysis": {
+            "backend": analysis.backend,
+            "model": analysis.model,
+            "thinking": analysis.thinking,
+            "available": bool(shutil.which(analysis.backend)),
+        },
         "subscriptions": True,
         "backends": capabilities(),
         "whisper_cleaning": bool(

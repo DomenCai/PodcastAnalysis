@@ -72,7 +72,7 @@ export function HomePage({ health }: { health: Health }) {
         <div>
           <span className="eyebrow">LOCAL WORKSPACE</span>
           <h1>工作台</h1>
-          <p>默认使用 Qwen3-ASR 转写，每次都由 Agy 生成三种阅读产物。</p>
+          <p>默认使用 Qwen3-ASR 转写，自动生成文章、笔记和思维导图。</p>
         </div>
         <button className="primary" onClick={() => navigate("/new")}>
           <Plus size={17} />
@@ -104,8 +104,8 @@ export function HomePage({ health }: { health: Health }) {
         <div className="metric">
           <Sparkles />
           <span>
-            <b>{health.agy ? "就绪" : "不可用"}</b>
-            <small>Agy 分析</small>
+            <b>{health.analysis?.available ? "就绪" : "不可用"}</b>
+            <small>{health.analysis?.backend === "pi" ? "Pi · K3 分析" : "Agy 分析"}</small>
           </span>
         </div>
       </div>

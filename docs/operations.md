@@ -8,15 +8,38 @@
 
 任务队列由单个管理进程持有文件锁，避免多 worker 重复执行。停服务使用 `uv run --no-sync python -m scripts.services stop`，检查当前任务是否完成后再重启；任务失败可在本地管理页或飞书卡片重试。机器人推送的本地持久记录可防止重启后重复通知，首次启动将迁移来的历史终态标为已见。
 
-## 分阶段文章分析
+## 文章分析配置（2026-10-08）
 
-默认 `PODCAST_AGY_MODEL=gemini-3.1-pro-high`、`PODCAST_AGY_STYLE_EDIT=false`。提示词分别为 `prompts/analysis.md`（生成）、`prompts/audit.md`（Gemini 核稿）、`prompts/style.md`（可选 Opus 语言编辑）。不再传入 `--effort high`，因为 Opus 不支持该参数。模型调用仍受沙箱约束，不通过放开命令权限来处理失败。
+| 配置 | 默认值 | 用途 |
+|---|---|---|
+| `PODCAST_ANALYSIS_BACKEND` | `pi` | 选择 `pi` 或 `agy`，服务级配置 |
+| `PODCAST_ANALYSIS_TIMEOUT_SECONDS` | `1200` | 每次 CLI 调用上限，大于 0 且不超过 86400 秒；agy 另有 15 秒退出宽限 |
+| `PODCAST_ANALYSIS_ATTEMPTS` | `2` | 包括首次在内的总尝试次数，1～5 |
+| `PODCAST_AGY_MODEL` | `gemini-3.1-pro-high` | 仅 agy 使用的 Gemini 模型 |
 
-检查点位于 `<result_dir>/.analysis/<run>/`。`generate/` 保存初稿，`audit/` 保存 Gemini 成稿和核稿记录，`style-*/` 保存可选润色版本与局部修改 JSON。同级阶段 JSON 保存产物哈希与 token 统计，不持久化 agy 原始响应或工具日志。`state.json` 指向当前轮次；只复用未完成轮次中哈希一致的已完成阶段。逐字稿、元数据、Gemini 模型或生成/核稿提示词变化会开始新轮次。Opus 提示词变化仅重做润色。
+pi 固定指定 `kimi/k3` 和 `--thinking high`，继承当前用户 `~/.pi/agent` 中的配置；使用 `--no-session`、关闭扩展/其他 skill/上下文文件发现，仅显式加载本项目 skill 和文件工具。已用本机 pi 0.84.4 验证事件格式。agy 保留沙箱和文件工具权限约束；无头模式仍需要在用户设置中允许任务目录的文件读写，不能通过放开命令权限解决失败。
 
-断线、额度不足、命令权限拒绝、缺文件或机械检查失败均停止本轮，不无限重连。点击“仅重新分析”可从失败阶段重试；它不同于重新转写。若 Opus 失败，可在管理服务环境中设 `PODCAST_AGY_STYLE_EDIT=false`，重启空闲的管理服务，再仅重新分析，直接发布缓存的 Gemini 成稿。普通重试不会自动清理检查点；确认不再需要历史版本后再统一整理。
+项目不自动加载 `.env`。手动运行可用 `PODCAST_ANALYSIS_BACKEND=agy uv run --no-sync python -m server.app`。launchd 通过 `zsh -lc` 启动，需在 `~/.zshenv` 导出配置后，确认队列空闲，再执行 `.venv/bin/python -m scripts.services restart manager`。随后检查 `/api/health` 的 `analysis` 对象，默认应为 pi / kimi/k3 / high。不要同时启动第二个管理 worker。旧 `WHISPER_AGY_TIMEOUT_SECONDS`、`WHISPER_AGY_ATTEMPTS`、`PODCAST_AGY_STYLE_EDIT` 已退役。
 
-发布前会将旧文件保存在该轮的 `before-publication/`，生成或核稿失败不会用半成品覆盖旧文章。文件发布逐个原子替换；异常断电并非跨文件事务，可从检查点重试完成发布或从备份恢复。可选润色不是事实核验，程序的数字与限定词检查也不能保证语义等价；长节目、健康建议及复杂多人归属仍可能需要人工复核。
+两种后端统一使用 `skills/podcast-to-article/` 中原样保存的上游 skill，版本和许可见 UPSTREAM.md / LICENSE；生成规则由 `prompts/analysis.md` 补充无人值守、来源、文章覆盖、笔记和导图约定。项目提示词覆盖上游文章 2,500–3,000 汉字、5–8 节及按比例删字的要求，以主要议题、关键论据、代表性案例和限制条件的保留为先，篇幅随有效信息量决定。笔记定位为快速复习，提炼 5–7 条核心观点，以 800–1,200 汉字为目标，避免重复展开文章论述。一次模型调用完成三份产物并回查原文；程序随后运行文风报告与机械校验，不再额外调用 Gemini 核稿或 Opus。
+
+网络 EOF、TLS/连接错误、限流及暂时的上游故障可在等待 10 秒后重试，不再限制必须在 120 秒内失败。权限拒绝、明确账号拒绝、额度不足、未知进程错误、输入/产物损坏直接停止。没有明确网络证据的超时不自动重试；超时伴随已分类的瞬时故障可以重试。pi 自带的有限 agent 重试发生在一次 CLI 内，受外层时限限制；诊断的 internal_retries 单独记录，避免把它与外层 attempt 混淆。
+
+每次外层尝试重新复制不可变输入和 skill，工作目录互相独立。诊断原子保存到 `<result_dir>/.analysis/<run>/diagnostics/<uuid>.json`：含后端、模型、thinking、stage、attempt、时间、耗时、退出码、超时标记、终态、错误类别、是否可重试、token 统计及校验结果。调用前先写 running，正常结束/错误/超时后更新；意外断电留下 running，表示该次未正常收尾。只保存白名单字段，不持久化原始响应、工具文本或凭据。
+
+`generate/` 及 generate.json 保存已验证产物与哈希；发布前旧文件在 `before-publication/`。发布失败可在“仅重新分析”时复用同轮检查点，生成未通过检查则重新调用。模型、skill 内容、提示词或输入变化开启新轮次；成功任务再分析也开启新轮次。旧 Gemini 多阶段轮次原样保留，v2 指纹不混用，恢复旧失败任务会按当前所选后端重新生成，但无需重转录。
+
+发布为逐文件原子替换，不是跨文件事务。意外中断后可从检查点续发。文风报告只作提示，机械校验与模型自检不代表外部事实核查或全部语义正确。
+
+### 2026-10-08 接入验收
+
+后端 202 项测试、前端 9 项测试与构建通过。pi / kimi/k3 / high 用 #752 的完整逐字稿副本生成三份产物，706.51 秒完成；agy 用合成短素材完成相同文件流程，59.55 秒。生成结果、检查点、文风报告和调用诊断分别在 `out/writing-tests/20261008-k3-skill-8six8fan/` 与 `out/writing-tests/20261008-agy-smoke-s43vd10p/`。K3 样稿 7 处直接引语中，6 处去除空白后可逐字找到，另 1 处将句号改成逗号，原意未变；这不代表全面人工核稿。上游脚本不识别「」引号，直接引语比例的零值不能当作实际没有引语。
+
+该次长文验证在开发中 token 聚合修正前已启动，其 usage 只包含最后一条助手消息；当前实现汇总该次调用全部已完成助手消息的用量，已有多轮事件测试覆盖。不要用该早期测试记录的 usage 推断整次调用成本。
+
+队列空闲时重启管理/只读服务，管理健康接口确认 pi / kimi/k3 / high；ASR、管理、只读健康均返回 200，四服务运行。浏览器确认管理文案及既有文章/导图阅读正常，390px 无横向溢出。53 个持久任务 JSON、机器人通知账本及 #752 原文章/笔记/导图哈希均未变，未重跑生产历史任务或发送通知。验收清单与改动前快照在 `out/maintenance-20261008-before-pi/`。
+
+## 历史运行记录
 
 ### 2026-09-28 接入验证
 

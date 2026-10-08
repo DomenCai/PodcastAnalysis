@@ -1,7 +1,7 @@
 [project]
 name = "podcast-analysis"
 version = "0.1.0"
-description = "播客订阅、独立转录服务编排与 agy Markdown 阅读"
+description = "播客订阅、独立转录服务编排与 pi/agy Markdown 阅读"
 requires-python = ">=3.12,<3.14"
 dependencies = [
     "fastapi>=0.115.0",

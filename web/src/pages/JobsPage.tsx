@@ -57,7 +57,7 @@ export function JobsPage() {
         <div>
           <span className="eyebrow">JOBS</span>
           <h1>任务</h1>
-          <p>查看排队、转写、说话人识别与 Agy 分析进度。</p>
+          <p>查看排队、转写、说话人识别与内容生成进度。</p>
         </div>
         <button className="primary" onClick={() => navigate("/new")}>
           <Plus size={17} />

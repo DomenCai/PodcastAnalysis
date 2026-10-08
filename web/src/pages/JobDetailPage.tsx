@@ -185,7 +185,7 @@ export function JobDetailPage({ id, health }: { id: string; health: Health }) {
           <Sparkles size={20} />
           <span>
             <strong>
-              {missingAnalysis ? "补齐 Agy 分析产物" : "仅重新运行 Agy 分析"}
+              {missingAnalysis ? "补齐文章、笔记与导图" : "仅重新生成文章、笔记与导图"}
             </strong>
             <p>
               复用现有逐字稿，只生成 article.md、notes.md 和
@@ -202,7 +202,7 @@ export function JobDetailPage({ id, health }: { id: string; health: Health }) {
           <div>
             <h2 className="form-title">从节目链接重新转写</h2>
             <p className="form-help">
-              可更换模型或说话人配置；这会重新获取节目音频并完整执行转写与 Agy
+              可更换模型或说话人配置；这会重新获取节目音频并完整执行转写与内容
               分析。
             </p>
           </div>

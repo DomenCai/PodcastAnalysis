@@ -1,10 +1,10 @@
 # PodcastAnalysis — 播客转文章
 
-本项目负责小宇宙订阅、下载、持久任务、agy 文章生成和 React 阅读；相邻 `whisper` 项目只提供 HTTP 转录 API。默认 Qwen，MiMo 可选。Whisper 和说话人分离保留在本地管理页。
+本项目负责小宇宙订阅、下载、持久任务、pi/agy 文章生成和 React 阅读；相邻 `whisper` 项目只提供 HTTP 转录 API。默认 Qwen，MiMo 可选。Whisper 和说话人分离保留在本地管理页。
 
 ## 安装与本地运行
 
-需要 Python 3.12～3.13、uv、Node 22+、ffmpeg，以及已安装并登录的 `agy`。先按 `../whisper/README.md` 启动 ASR，再执行：
+需要 Python 3.12～3.13、uv、Node 22+、ffmpeg，以及已安装并配置 `kimi/k3` 的 `pi`（切换 agy 时需安装并登录 agy）。先按 `../whisper/README.md` 启动 ASR，再执行：
 
 ```bash
 uv sync --frozen --dev
@@ -24,11 +24,20 @@ uv run --no-sync python -m server.public_app
 
 `./analysis <小宇宙单集链接或本地音频>` 通过管理 API 提交任务，`--backend mimo` 选择 MiMo，`--analyze-only <JOB_ID>` 仅重新生成文章。管理端只有一个任务 worker，订阅每 30 分钟检查一次。失败任务可重试，逐字稿完成后可只重新分析；处理成功会清理临时上传音频。
 
-文章分析默认由 `gemini-3.1-pro-high` 分两阶段完成：先生成文章、笔记和导图，再对照完整逐字稿核稿。文章保留说话人的口吻，笔记按内容关系组织，时间戳仅辅助回听。核稿检查的是转述是否忠实，不是对节目观点做外部事实验证。
+分析后端由管理服务环境变量 `PODCAST_ANALYSIS_BACKEND=pi|agy` 选择，默认 **pi / kimi/k3 / thinking high**；agy 使用 `PODCAST_AGY_MODEL=gemini-3.1-pro-high`。两种后端都直接使用固定版本的 [podcast-to-article skill](skills/podcast-to-article/UPSTREAM.md)，一次调用生成文章、笔记和思维导图并自检。文章按话题重组，保留主要议题、关键论据、代表性案例及限制条件，篇幅随有效信息量决定，覆盖上游固定字数和章节数量限制；笔记提炼 5–7 条核心观点，以 800–1,200 汉字为目标，避免重复展开文章论述；导图呈现关系，不只复刻文章目录。项目约定在 `prompts/analysis.md`，不再单独调用 Gemini 核稿或 Opus 润色。
 
-管理服务环境变量 `PODCAST_AGY_MODEL` 可选择其他 Gemini 模型。`PODCAST_AGY_STYLE_EDIT=true` 才启用可选 Opus 语言编辑（默认关闭）：只读文章和少量口吻样本，最多返回八处局部修改，不负责事实鉴定、重选内容或改写笔记。`WHISPER_AGY_TIMEOUT_SECONDS` 是每次模型调用的超时，不是整个分析任务的总时长。配置需导出到管理进程环境；项目不会自动加载 `.env`。
+`PODCAST_ANALYSIS_TIMEOUT_SECONDS` 默认 1200 秒，是每次 CLI 调用的时限；agy 额外预留 15 秒退出宽限。`PODCAST_ANALYSIS_ATTEMPTS` 为总尝试次数（1～5，默认 2），已分类的网络异常、限流和暂时上游故障不论发生多晚，都可在等待 10 秒后重试；纯超时、权限、账号、额度、未知错误和产物检查失败不自动重试。每次重试重新创建工作副本。pi 内置的有限重试仍受该次调用总时限约束，内部重试次数也会记录。旧 `WHISPER_AGY_*` 和 `PODCAST_AGY_STYLE_EDIT` 不再使用。
 
-失败后使用“仅重新分析”会复用已完成阶段；已成功的任务再次分析则开启新一轮。检查点保存在结果目录的 `.analysis/`，发布前旧文件保存在该轮的 `before-publication/`。Opus 失败时保留 Gemini 成稿，可稍后重试润色，或关闭润色并重试以发布 Gemini 版本。详见 [运维说明](docs/operations.md)。
+每次调用的结构化诊断保存在 `.analysis/<run>/diagnostics/`，包括后端、模型、时限、耗时、退出码、终态、错误类别和 token 用量；超时也记录，不保存原始响应、逐字稿或凭据。检查通过后保存 `generate/`；发布失败时“仅重新分析”可复用它，已成功任务再次分析则开启新一轮。模型、skill 或提示词变化会启用新轮次，旧检查点和发布前的 `before-publication/` 备份保留；旧版 Gemini 多阶段检查点不混用。详见 [运维说明](docs/operations.md)。
+
+配置需导出到管理进程环境；项目不会自动加载 `.env`。手动切换示例：
+
+```bash
+PODCAST_ANALYSIS_BACKEND=agy uv run --no-sync python -m server.app
+# 默认使用 pi，无需设置 PODCAST_ANALYSIS_BACKEND
+```
+
+常驻服务需在 `~/.zshenv` 导出所选配置，并在队列空闲时通过 `scripts.services restart manager` 生效。`pi` 使用当前用户的 `~/.pi/agent` 模型与凭据配置，调用中不传递明文密钥。
 
 ## 飞书私聊机器人
 

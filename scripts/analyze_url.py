@@ -22,7 +22,7 @@ STAGES = {
     "transcribing": "转写",
     "diarizing": "发言人分离",
     "postprocessing": "错别字清洗与标点恢复",
-    "analyzing": "agy 生成 Markdown",
+    "analyzing": "生成文章、笔记与导图",
     "archiving": "归档上一版产物",
     "done": "完成",
     "error": "失败",
@@ -94,7 +94,7 @@ def main() -> int:
         "--num-speakers", type=int, help="指定 1～32 人，同时启用分离（1 人跳过模型）"
     )
     parser.add_argument(
-        "--analyze-only", metavar="JOB_ID", help="复用已保存逐字稿，仅重跑 agy"
+        "--analyze-only", metavar="JOB_ID", help="复用已保存逐字稿，仅重新生成文章、笔记与导图"
     )
     parser.add_argument(
         "--api", default=os.getenv("PODCAST_API_URL", "http://127.0.0.1:18000")

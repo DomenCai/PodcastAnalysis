@@ -8,7 +8,12 @@ export type Health = {
   read_only: boolean;
   worker?: "single";
   ffmpeg?: boolean;
-  agy?: boolean;
+  analysis?: {
+    backend: "pi" | "agy";
+    model: string;
+    thinking: string | null;
+    available: boolean;
+  };
   backends?: { qwen?: boolean; whisper: boolean; mimo: boolean };
 };
 
