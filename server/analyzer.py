@@ -1,4 +1,4 @@
-"""Generate skill-based podcast artifacts with pi/K3 or agy/Gemini."""
+"""Generate skill-based podcast artifacts with Kimi, Codex or Gemini."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from server.analysis_runner import AnalysisConfig, AnalysisError, invoke
+from server import analysis_fallback
 from server.podcast_feed import normalize_episode_url
 from server.processing_lock import processing_lock
 
@@ -287,11 +288,20 @@ def _generate(run: Path, result_dir: Path, inputs: dict[str, bytes], prompt: str
     transcript = inputs["transcript.txt"].decode("utf-8")
     episode = inputs["episode.md"].decode("utf-8")
     diagnostics = _directory(run / "diagnostics")
-    for attempt in range(1, config.attempts + 1):
+    primary = config.backend
+    route = "primary"
+    fallback_enabled = config.backend == "pi" and config.fallback_backend == "codex"
+    if fallback_enabled and analysis_fallback.cooldown_status()["active"]:
+        config = analysis_fallback.codex_config(config)
+        route = "cooldown"
+    attempt = 1
+    while True:
         diagnostic = {
-            "version": 1, "stage": "generate", "attempt": attempt,
+            "version": 3, "stage": "generate", "attempt": attempt,
             "backend": config.backend, "model": config.model, "thinking": config.thinking,
-            "timeout_seconds": config.timeout, "started_at": datetime.now(UTC).isoformat(),
+            "primary_backend": primary, "route": route,
+            "idle_timeout_seconds": config.idle_timeout, "reminder_interval_seconds": config.reminder_interval,
+            "started_at": datetime.now(UTC).isoformat(),
             "outcome": "running", "exit_code": None, "timed_out": False,
             "error_category": None, "retryable": False, "validated": False,
         }
@@ -299,16 +309,24 @@ def _generate(run: Path, result_dir: Path, inputs: dict[str, bytes], prompt: str
         _json_write(record, diagnostic)
         started = time.monotonic()
         failure = None
+        invocation_failure = None
         try:
             # Never reuse partial edits from a failed attempt.
-            with tempfile.TemporaryDirectory(prefix=".generate-", dir=run) as temp:
-                work = Path(temp)
+            # Codex's writable workspace must not inherit the enclosing repository root.
+            with tempfile.TemporaryDirectory(prefix="podcast-generate-",
+                                             dir=None if config.backend == "codex" else run) as temp:
+                work = Path(temp).resolve()
                 for name, data in inputs.items():
                     target = work / name
                     target.parent.mkdir(parents=True, exist_ok=True)
                     target.write_bytes(data)
                 try:
-                    metadata = invoke(work, prompt, config, diagnostic, executable)
+                    metadata = invoke(work, prompt, config, diagnostic,
+                                      executable if config.backend == primary else None,
+                                      on_update=lambda: _json_write(record, diagnostic))
+                except AnalysisError as exc:
+                    invocation_failure = exc
+                    raise
                 finally:
                     if _checked_bytes(result_dir / "transcript.txt") != inputs["transcript.txt"]:
                         raise AnalysisError("原始 transcript.txt 被修改，拒绝发布", category="input_modified")
@@ -318,12 +336,17 @@ def _generate(run: Path, result_dir: Path, inputs: dict[str, bytes], prompt: str
                 _validate_content(work, transcript, episode)
                 diagnostic["validated"] = True
                 _style_report(work, run)
+                metadata.update(primary_backend=primary, route=route)
                 saved = _save_checkpoint(run, "generate", work, ARTIFACT_NAMES, metadata)
                 diagnostic["outcome"] = "success"
                 return saved
         except AnalysisError as exc:
             failure = exc
             diagnostic.update(outcome="error", error_category=exc.category, retryable=exc.retryable)
+            if fallback_enabled and config.backend == "pi" and exc is invocation_failure:
+                analysis_fallback.start_cooldown()
+                diagnostic["fallback_to"] = "codex"
+                diagnostic["cooldown_until"] = analysis_fallback.cooldown_status()["cooldown_until"]
         except Exception:
             diagnostic.update(outcome="error", error_category="local_error")
             raise
@@ -331,13 +354,18 @@ def _generate(run: Path, result_dir: Path, inputs: dict[str, bytes], prompt: str
             diagnostic.update(finished_at=datetime.now(UTC).isoformat(),
                               elapsed_seconds=round(time.monotonic() - started, 3))
             _json_write(record, diagnostic)
+        if diagnostic.get("fallback_to") == "codex":
+            config = analysis_fallback.codex_config(config)
+            route = "request_failed"
+            attempt = 1
+            continue
         if not failure.retryable or attempt >= config.attempts:
             raise AnalysisError(
                 f"{config.backend} 生成失败：{failure}", category=failure.category,
                 retryable=failure.retryable,
             ) from failure
         time.sleep(RETRY_DELAY_SECONDS)
-    raise AssertionError("unreachable")
+        attempt += 1
 
 
 def analyze(result_dir: Path, episode: dict[str, Any] | None = None, *,
@@ -365,9 +393,10 @@ def _analyze(result_dir: Path, cache: Path, episode: dict | None, config: Analys
     inputs = {"transcript.txt": original, "episode.md": episode_bytes}
     for name in SKILL_FILES:
         inputs[f".skills/podcast-to-article/{name}"] = _checked_bytes(SKILL_PATH / name)
-    # v2 separates skill-based outputs from the old Gemini audit pipeline.
+    # v3 binds checkpoints to the primary model and its fallback policy.
     key = _digest(json.dumps({
-        "version": 2, "backend": config.backend, "model": config.model,
+        "version": 3, "backend": config.backend, "model": config.model,
+        "fallback_backend": config.fallback_backend,
         "thinking": config.thinking, "prompt": prompt,
         "inputs": {name: _digest(data) for name, data in inputs.items()},
     }, sort_keys=True).encode())

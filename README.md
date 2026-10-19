@@ -1,10 +1,10 @@
 # PodcastAnalysis — 播客转文章
 
-本项目负责小宇宙订阅、下载、持久任务、pi/agy 文章生成和 React 阅读；相邻 `whisper` 项目只提供 HTTP 转录 API。默认 Qwen，MiMo 可选。Whisper 和说话人分离保留在本地管理页。
+本项目负责小宇宙订阅、下载、持久任务、pi/Codex/agy 文章生成和 React 阅读；相邻 `whisper` 项目只提供 HTTP 转录 API。默认 Qwen，MiMo 可选。Whisper 和说话人分离保留在本地管理页。
 
 ## 安装与本地运行
 
-需要 Python 3.12～3.13、uv、Node 22+、ffmpeg，以及已安装并配置 `kimi/k3` 的 `pi`（切换 agy 时需安装并登录 agy）。先按 `../whisper/README.md` 启动 ASR，再执行：
+需要 Python 3.12～3.13、uv、Node 22+、ffmpeg，以及已安装并配置 `kimi/k3` 的 `pi`，以及可调用 `gpt-6.1-sol` 的 Codex CLI（切换 agy 时需安装并登录 agy）。先按 `../whisper/README.md` 启动 ASR，再执行：
 
 ```bash
 uv sync --frozen --dev
@@ -24,11 +24,15 @@ uv run --no-sync python -m server.public_app
 
 `./analysis <小宇宙单集链接或本地音频>` 通过管理 API 提交任务，`--backend mimo` 选择 MiMo，`--analyze-only <JOB_ID>` 仅重新生成文章。管理端只有一个任务 worker，订阅每 30 分钟检查一次。失败任务可重试，逐字稿完成后可只重新分析；处理成功会清理临时上传音频。
 
-分析后端由管理服务环境变量 `PODCAST_ANALYSIS_BACKEND=pi|agy` 选择，默认 **pi / kimi/k3 / thinking high**；agy 使用 `PODCAST_AGY_MODEL=gemini-3.1-pro-high`。两种后端都直接使用固定版本的 [podcast-to-article skill](skills/podcast-to-article/UPSTREAM.md)，一次调用生成文章、笔记和思维导图并自检。文章按话题重组，保留主要议题、关键论据、代表性案例及限制条件，篇幅随有效信息量决定，覆盖上游固定字数和章节数量限制；笔记提炼 5–7 条核心观点，以 800–1,200 汉字为目标，避免重复展开文章论述；导图呈现关系，不只复刻文章目录。项目约定在 `prompts/analysis.md`，不再单独调用 Gemini 核稿或 Opus 润色。
+分析后端由管理服务环境变量 `PODCAST_ANALYSIS_BACKEND=pi|codex|agy` 选择，默认 **pi / kimi/k3 / thinking high**；agy 使用 `PODCAST_AGY_MODEL=gemini-3.1-pro-high`。三种后端都直接使用固定版本的 [podcast-to-article skill](skills/podcast-to-article/UPSTREAM.md)，一次调用生成文章、笔记和思维导图并自检。文章按话题重组，保留主要议题、关键论据、代表性案例及限制条件，篇幅随有效信息量决定，覆盖上游固定字数和章节数量限制；笔记提炼 5–7 条核心观点，以 800–1,200 汉字为目标，避免重复展开文章论述；导图呈现关系，不只复刻文章目录。项目约定在 `prompts/analysis.md`，不再单独调用 Gemini 核稿或 Opus 润色。
 
-`PODCAST_ANALYSIS_TIMEOUT_SECONDS` 默认 1200 秒，是每次 CLI 调用的时限；agy 额外预留 15 秒退出宽限。`PODCAST_ANALYSIS_ATTEMPTS` 为总尝试次数（1～5，默认 2），已分类的网络异常、限流和暂时上游故障不论发生多晚，都可在等待 10 秒后重试；纯超时、权限、账号、额度、未知错误和产物检查失败不自动重试。每次重试重新创建工作副本。pi 内置的有限重试仍受该次调用总时限约束，内部重试次数也会记录。旧 `WHISPER_AGY_*` 和 `PODCAST_AGY_STYLE_EDIT` 不再使用。
+分析没有总时长上限。`PODCAST_ANALYSIS_IDLE_TIMEOUT_SECONDS` 默认 1200 秒：连续没有模型输出、思考增量或工具活动才停止，设为 0 可关闭。pi 通过 RPC 接收 `PODCAST_ANALYSIS_REMINDER_SECONDS`（默认 900 秒，0 关闭）控制的收尾提醒，在当前工具轮次结束后送达；未消费的提醒最多排队一条。agy 和 Codex 使用流式事件监测空闲，目前不支持运行中催稿。日志、提醒回执和内部重试通知不会重置空闲计时。
 
-每次调用的结构化诊断保存在 `.analysis/<run>/diagnostics/`，包括后端、模型、时限、耗时、退出码、终态、错误类别和 token 用量；超时也记录，不保存原始响应、逐字稿或凭据。检查通过后保存 `generate/`；发布失败时“仅重新分析”可复用它，已成功任务再次分析则开启新一轮。模型、skill 或提示词变化会启用新轮次，旧检查点和发布前的 `before-publication/` 备份保留；旧版 Gemini 多阶段检查点不混用。详见 [运维说明](docs/operations.md)。
+**自动备用**：默认 `PODCAST_ANALYSIS_FALLBACK=codex`。pi 一次 CLI 调用失败就切换到 **Codex / gpt-6.1-sol / high**，不要求识别额度原因，也不再做 pi 外层重试。自失败时起冷却 1 小时，期间其他任务直接使用 Codex，到期后下一次任务重新尝试 pi。冷却状态保存在 `PODCAST_DATA_DIR/analysis-fallback.json`（默认 `data/`），管理服务重启仍有效；Codex 失败不会延长冷却或回切 pi。输入保护、产物校验和本地发布错误直接报错。设为 `none` 可关闭备用，或设 `PODCAST_ANALYSIS_BACKEND=codex` 直接使用 Codex。
+
+`PODCAST_ANALYSIS_ATTEMPTS` 为每个后端的总尝试次数（1～5，默认 2），已分类的网络异常、限流和暂时上游故障不论发生多晚，都可在等待 10 秒后重试；纯空闲超时、权限、账号、额度、未知错误和产物检查失败不自动重试。每次重试重新创建工作副本。pi 内置有限重试仍受空闲监测约束，内部重试次数另行记录。旧 `PODCAST_ANALYSIS_TIMEOUT_SECONDS`、`WHISPER_AGY_*` 和 `PODCAST_AGY_STYLE_EDIT` 不再使用。
+
+每次调用的结构化诊断保存在 `.analysis/<run>/diagnostics/`，包括后端、模型、空闲阈值、耗时、最后活动时间与类型、空闲时长、提醒发送/接受/送达次数、退出码、终态、错误类别和 token 用量；运行中每 30 秒更新安全诊断，超时也记录，不保存原始响应、逐字稿或凭据。检查通过后保存 `generate/`；发布失败时“仅重新分析”可复用它，已成功任务再次分析则开启新一轮。模型、skill 或提示词变化会启用新轮次，旧检查点和发布前的 `before-publication/` 备份保留；旧版 Gemini 多阶段检查点不混用。详见 [运维说明](docs/operations.md)。
 
 配置需导出到管理进程环境；项目不会自动加载 `.env`。手动切换示例：
 
@@ -37,7 +41,7 @@ PODCAST_ANALYSIS_BACKEND=agy uv run --no-sync python -m server.app
 # 默认使用 pi，无需设置 PODCAST_ANALYSIS_BACKEND
 ```
 
-常驻服务需在 `~/.zshenv` 导出所选配置，并在队列空闲时通过 `scripts.services restart manager` 生效。`pi` 使用当前用户的 `~/.pi/agent` 模型与凭据配置，调用中不传递明文密钥。
+常驻服务需在 `~/.zshenv` 导出所选配置，并在队列空闲时通过 `scripts.services restart manager` 生效。`pi` 使用当前用户的 `~/.pi/agent` 模型与凭据配置；Codex 继承当前用户的 provider/认证配置（含现有自定义 provider），命令行不传递明文密钥。Codex 在仓库外的临时副本中使用 `workspace-write`，关闭本次调用的 MCP、插件、hooks、自动技能目录和网络搜索，仅读写任务文件；提示词仅适配文件工具，不改变写作要求。健康接口的 `analysis.fallback` 显示备用配置与冷却状态，`available` 仅表示 CLI 可执行文件存在。
 
 ## 飞书私聊机器人
 

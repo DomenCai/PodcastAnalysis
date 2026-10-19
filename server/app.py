@@ -65,6 +65,7 @@ app = FastAPI(title="Podcast Notes — private", lifespan=lifespan)
 @app.get("/api/health")
 def health() -> dict:
     from server.analysis_runner import AnalysisConfig
+    from server import analysis_fallback
 
     analysis = AnalysisConfig.from_env()
     return {
@@ -77,6 +78,10 @@ def health() -> dict:
             "model": analysis.model,
             "thinking": analysis.thinking,
             "available": bool(shutil.which(analysis.backend)),
+            "fallback": ({"backend": "codex", "model": "gpt-6.1-sol", "thinking": "high",
+                          "available": bool(shutil.which("codex")),
+                          "cooldown_seconds": analysis_fallback.COOLDOWN_SECONDS,
+                          **analysis_fallback.cooldown_status()} if analysis.fallback_backend else None),
         },
         "subscriptions": True,
         "backends": capabilities(),

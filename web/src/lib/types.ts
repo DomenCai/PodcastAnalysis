@@ -9,10 +9,20 @@ export type Health = {
   worker?: "single";
   ffmpeg?: boolean;
   analysis?: {
-    backend: "pi" | "agy";
+    backend: "pi" | "agy" | "codex";
     model: string;
     thinking: string | null;
     available: boolean;
+    fallback?: {
+      backend: "codex";
+      model: string;
+      thinking: string;
+      available: boolean;
+      cooldown_seconds: number;
+      active: boolean;
+      remaining_seconds: number;
+      cooldown_until: string | null;
+    } | null;
   };
   backends?: { qwen?: boolean; whisper: boolean; mimo: boolean };
 };

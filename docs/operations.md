@@ -8,28 +8,56 @@
 
 任务队列由单个管理进程持有文件锁，避免多 worker 重复执行。停服务使用 `uv run --no-sync python -m scripts.services stop`，检查当前任务是否完成后再重启；任务失败可在本地管理页或飞书卡片重试。机器人推送的本地持久记录可防止重启后重复通知，首次启动将迁移来的历史终态标为已见。
 
-## 文章分析配置（2026-10-08）
+## 文章分析配置（2026-10-19）
 
 | 配置 | 默认值 | 用途 |
 |---|---|---|
-| `PODCAST_ANALYSIS_BACKEND` | `pi` | 选择 `pi` 或 `agy`，服务级配置 |
-| `PODCAST_ANALYSIS_TIMEOUT_SECONDS` | `1200` | 每次 CLI 调用上限，大于 0 且不超过 86400 秒；agy 另有 15 秒退出宽限 |
-| `PODCAST_ANALYSIS_ATTEMPTS` | `2` | 包括首次在内的总尝试次数，1～5 |
+| `PODCAST_ANALYSIS_BACKEND` | `pi` | 选择 `pi`、`codex` 或 `agy`，服务级配置 |
+| `PODCAST_ANALYSIS_FALLBACK` | `codex` | pi 调用失败自动切 Codex 并持久冷却 1 小时；`none` 关闭，只对 pi 生效 |
+| `PODCAST_ANALYSIS_IDLE_TIMEOUT_SECONDS` | `1200` | 连续无可见进展的空闲阈值，0～86400 秒；0 关闭，无总时长上限 |
+| `PODCAST_ANALYSIS_REMINDER_SECONDS` | `900` | pi 运行中收尾提醒间隔，0～86400 秒；0 关闭，agy/Codex 暂不支持 |
+| `PODCAST_ANALYSIS_ATTEMPTS` | `2` | 每个后端包括首次在内的总尝试次数，1～5；启用备用时 pi 首次调用失败立即切换 |
 | `PODCAST_AGY_MODEL` | `gemini-3.1-pro-high` | 仅 agy 使用的 Gemini 模型 |
 
 pi 固定指定 `kimi/k3` 和 `--thinking high`，继承当前用户 `~/.pi/agent` 中的配置；使用 `--no-session`、关闭扩展/其他 skill/上下文文件发现，仅显式加载本项目 skill 和文件工具。已用本机 pi 0.84.4 验证事件格式。agy 保留沙箱和文件工具权限约束；无头模式仍需要在用户设置中允许任务目录的文件读写，不能通过放开命令权限解决失败。
 
-项目不自动加载 `.env`。手动运行可用 `PODCAST_ANALYSIS_BACKEND=agy uv run --no-sync python -m server.app`。launchd 通过 `zsh -lc` 启动，需在 `~/.zshenv` 导出配置后，确认队列空闲，再执行 `.venv/bin/python -m scripts.services restart manager`。随后检查 `/api/health` 的 `analysis` 对象，默认应为 pi / kimi/k3 / high。不要同时启动第二个管理 worker。旧 `WHISPER_AGY_TIMEOUT_SECONDS`、`WHISPER_AGY_ATTEMPTS`、`PODCAST_AGY_STYLE_EDIT` 已退役。
+pi 改用 RPC：正文、思考和工具参数增量，以及工具开始/进展/结束、上下文压缩开始/结束，计为可见活动。`agent_end` 不代表整个任务完成；收到 `agent_settled` 后关闭 stdin，等待 CLI 正常退出。每 15 分钟用 `steer` 排队一条停止扩展探索、完成三份产物并自检的提醒，模型在当前工具轮次结束后收到；上一条尚未消费时不重复堆积。提醒和回执不续期，普通日志、重试通知也不续期。无输出的远端计算无法与卡住可靠区分，仍受空闲阈值约束。
 
-两种后端统一使用 `skills/podcast-to-article/` 中原样保存的上游 skill，版本和许可见 UPSTREAM.md / LICENSE；生成规则由 `prompts/analysis.md` 补充无人值守、来源、文章覆盖、笔记和导图约定。项目提示词覆盖上游文章 2,500–3,000 汉字、5–8 节及按比例删字的要求，以主要议题、关键论据、代表性案例和限制条件的保留为先，篇幅随有效信息量决定。笔记定位为快速复习，提炼 5–7 条核心观点，以 800–1,200 汉字为目标，避免重复展开文章论述。一次模型调用完成三份产物并回查原文；程序随后运行文风报告与机械校验，不再额外调用 Gemini 核稿或 Opus。
+agy 使用 `--output-format stream-json --print-timeout 0`，步骤状态变化或文本增量计为活动，重复状态不续期。其公开流式输入接口描述的是逐条执行新轮次，未确认运行中 steering 能力，因此不发送可能另起任务的催稿。正常生成无总时限；pi 已明确结束后的进程退出清理另有 5 秒宽限，这不是生成时限。
 
-网络 EOF、TLS/连接错误、限流及暂时的上游故障可在等待 10 秒后重试，不再限制必须在 120 秒内失败。权限拒绝、明确账号拒绝、额度不足、未知进程错误、输入/产物损坏直接停止。没有明确网络证据的超时不自动重试；超时伴随已分类的瞬时故障可以重试。pi 自带的有限 agent 重试发生在一次 CLI 内，受外层时限限制；诊断的 internal_retries 单独记录，避免把它与外层 attempt 混淆。
+项目不自动加载 `.env`。手动运行可用 `PODCAST_ANALYSIS_BACKEND=agy uv run --no-sync python -m server.app`。launchd 通过 `zsh -lc` 启动，需在 `~/.zshenv` 导出配置后，确认队列空闲，再执行 `.venv/bin/python -m scripts.services restart manager`。随后检查 `/api/health` 的 `analysis` 对象，默认应为 pi / kimi/k3 / high。不要同时启动第二个管理 worker。旧总时限 `PODCAST_ANALYSIS_TIMEOUT_SECONDS` 及 `WHISPER_AGY_TIMEOUT_SECONDS`、`WHISPER_AGY_ATTEMPTS`、`PODCAST_AGY_STYLE_EDIT` 已退役。
 
-每次外层尝试重新复制不可变输入和 skill，工作目录互相独立。诊断原子保存到 `<result_dir>/.analysis/<run>/diagnostics/<uuid>.json`：含后端、模型、thinking、stage、attempt、时间、耗时、退出码、超时标记、终态、错误类别、是否可重试、token 统计及校验结果。调用前先写 running，正常结束/错误/超时后更新；意外断电留下 running，表示该次未正常收尾。只保存白名单字段，不持久化原始响应、工具文本或凭据。
+三种后端统一使用 `skills/podcast-to-article/` 中原样保存的上游 skill，版本和许可见 UPSTREAM.md / LICENSE；生成规则由 `prompts/analysis.md` 补充无人值守、来源、文章覆盖、笔记和导图约定。项目提示词覆盖上游文章 2,500–3,000 汉字、5–8 节及按比例删字的要求，以主要议题、关键论据、代表性案例和限制条件的保留为先，篇幅随有效信息量决定。笔记定位为快速复习，提炼 5–7 条核心观点，以 800–1,200 汉字为目标，避免重复展开文章论述。一次模型调用完成三份产物并回查原文；程序随后运行文风报告与机械校验，不再额外调用 Gemini 核稿或 Opus。
 
-`generate/` 及 generate.json 保存已验证产物与哈希；发布前旧文件在 `before-publication/`。发布失败可在“仅重新分析”时复用同轮检查点，生成未通过检查则重新调用。模型、skill 内容、提示词或输入变化开启新轮次；成功任务再分析也开启新轮次。旧 Gemini 多阶段轮次原样保留，v2 指纹不混用，恢复旧失败任务会按当前所选后端重新生成，但无需重转录。
+默认启用备用时，pi 一次 CLI 调用的任何失败（包括鉴权、超时、未知响应、启动失败）都立即切换到 Codex，不要求额度识别。冷却从该次失败开始计时，固定 3600 秒；状态原子保存到 `PODCAST_DATA_DIR/analysis-fallback.json`，重启仍有效。冷却期内任务直接走 Codex，到期后下一次任务尝试 pi；Codex 失败不会续期或回切。输入保护、产物校验、检查点和发布错误不属于请求失败，不触发备用。
+
+Codex、agy 及关闭备用后的 pi，网络 EOF、TLS/连接错误、限流及暂时的上游故障可在等待 10 秒后重试，不再限制必须在 120 秒内失败。权限拒绝、明确账号拒绝、额度不足、未知进程错误、输入/产物损坏直接停止。没有明确网络证据的超时不自动重试；超时伴随已分类的瞬时故障可以重试。pi 自带的有限 agent 重试发生在一次 CLI 内，受空闲监测约束；诊断的 internal_retries 单独记录，避免把它与外层 attempt 混淆。
+
+Codex 使用 `codex exec --json --ephemeral --sandbox workspace-write --model gpt-6.1-sol -c model_reasoning_effort="high"`，提示词通过 stdin 输入。保留用户的 provider/认证配置，不把密钥放入 argv；按当前配置关闭 MCP、插件、hooks、通知、自动技能目录和 web search。工作目录位于仓库外，sandbox 只允许任务目录写入，shell 网络关闭；模型仅获准用 shell 只读命令读取素材、用 apply_patch 写产物。输入及 skill 仍逐字节校验。`turn.completed` 与退出码 0 是 CLI 成功条件，仍须通过三份产物校验才能发布。item 的实际变化计为可见活动，重复快照和连接重试日志不续期；无总时限，默认空闲阈值仍为 1200 秒。
+
+`/api/health` 的 `analysis` 表示主配置，`analysis.fallback` 包含 Codex 型号、CLI 是否存在、`active`、`remaining_seconds`、`cooldown_until`。CLI 存在不等于远端模型可用。不要修改或清空冷却文件来掩盖失败；损坏状态会明确报错。
+
+每次外层尝试重新复制不可变输入和 skill，工作目录互相独立。诊断原子保存到 `<result_dir>/.analysis/<run>/diagnostics/<uuid>.json`：含实际后端、模型、thinking、主后端 primary_backend、路由 route（primary/request_failed/cooldown）、stage、attempt、时间、耗时、退出码、超时标记及原因（idle/upstream/shutdown）、终态、错误类别、是否可重试、token 统计及校验结果。调用前先写 running，运行中每 30 秒更新最后活动时间、活动类型、当前/最长空闲秒数和提醒发送/接受/送达次数，正常结束/错误/超时后更新；意外断电留下 running，表示该次未正常收尾。只保存白名单字段，不持久化原始响应、工具文本或凭据。
+
+`generate/` 及 generate.json 保存已验证产物与哈希；发布前旧文件在 `before-publication/`。发布失败可在“仅重新分析”时复用同轮检查点，生成未通过检查则重新调用。模型、skill 内容、提示词或输入变化开启新轮次；成功任务再分析也开启新轮次。旧 Gemini 多阶段轮次原样保留，v3 指纹加入备用策略，不复用旧 v2 轮次，恢复旧失败任务会按当前所选后端重新生成，但无需重转录。
 
 发布为逐文件原子替换，不是跨文件事务。意外中断后可从检查点续发。文风报告只作提示，机械校验与模型自检不代表外部事实核查或全部语义正确。
+
+### 2026-10-19 Codex 备用验证
+
+本机 Codex CLI 0.159.3，继承现有 cpa provider，以 `gpt-6.1-sol` / `high` 完成合成短素材文章、笔记、导图生成，用时 122.71 秒；输入保护和三份产物校验通过。样稿与安全诊断在 `out/writing-tests/20261019-122934-codex-smoke/`。测试使用独立数据目录，没有重跑生产任务或发送通知。诊断有 1 次工具错误，但最终 CLI 成功；不将短素材验证视为长播客事实与质量验收。
+
+后端 270 项、前端 9 项测试与前端构建通过。自动切换和冷却规则以模拟故障验证，真实模型测试验证 Codex 生成及校验链路。
+
+生产管理服务尚未重启，运行进程仍使用旧代码。启用时先确认队列空闲，再通过现有服务脚本重启 manager，检查健康接口的 `analysis.fallback`。已有逐字稿的失败任务使用“仅重新分析”，不必重新转录；不要批量自动重跑历史任务。
+
+### 2026-10-09 空闲监测验收
+
+#759 的失败诊断显示旧总时限在 1200.145 秒终止进程，最后助手状态为 toolUse、累计输出 41075 token，工具错误与内部重试均为 0；旧诊断未记录最后活动时间，不能据此判断终止前是否仍在工作。
+
+后端 221 项测试通过，包含真实本地子进程验证持续活动超过空闲阈值、日志/提醒回执不续期、提醒不堆积、运行诊断定期更新、RPC 拒绝和异常退出。pi/K3 隔离合成素材实测 55.85 秒完成三份产物，测试间隔临时设为 10 秒，4 条提醒均接受并送达；正式默认仍为 900 秒。样稿和诊断在 `out/writing-tests/20261009-pi-idle-smoke-c255q5bx/`。agy 真实短响应也通过新的流式调用与终态解析；这不是长文质量验收。
+
+确认队列空闲后重启管理服务，管理、只读和 ASR 健康检查均返回 200，默认 pi / kimi/k3 / high。56 份任务 JSON/通知账本文件哈希未变，未重跑 #759 或发送测试通知；记录在 `out/maintenance-20261009-idle/`。
 
 ### 2026-10-08 接入验收
 

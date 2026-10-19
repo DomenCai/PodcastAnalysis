@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import io
 import signal
 import subprocess
 from pathlib import Path
@@ -8,7 +9,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from server import analyzer, analysis_runner
+from server import analyzer, analysis_runner, analysis_fallback
 from server.analysis_runner import AnalysisConfig, AnalysisError
 
 URL = 'https://www.xiaoyuzhoufm.com/episode/6a2d134143a22a6955830bfe'
@@ -16,15 +17,19 @@ NAMES = ('article.md', 'notes.md', 'mindmap.md')
 
 
 @pytest.fixture(autouse=True)
-def environment(monkeypatch):
-    for name in ('PODCAST_ANALYSIS_BACKEND', 'PODCAST_ANALYSIS_TIMEOUT_SECONDS',
+def environment(monkeypatch, tmp_path):
+    for name in ('PODCAST_ANALYSIS_BACKEND', 'PODCAST_ANALYSIS_IDLE_TIMEOUT_SECONDS',
+                 'PODCAST_ANALYSIS_REMINDER_SECONDS',
                  'PODCAST_ANALYSIS_ATTEMPTS', 'PODCAST_AGY_MODEL'):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv('PODCAST_ANALYSIS_FALLBACK', 'none')
+    monkeypatch.setenv('PODCAST_DATA_DIR', str(tmp_path / 'data'))
+    monkeypatch.setenv('CODEX_HOME', str(tmp_path / 'codex-home'))
     monkeypatch.setattr(analyzer, '_style_report', lambda *args: None)
     monkeypatch.setattr(analyzer.time, 'sleep', Mock())
 
 
-@pytest.fixture(params=['pi', 'agy'])
+@pytest.fixture(params=['pi', 'agy', 'codex'])
 def backend(request, monkeypatch):
     monkeypatch.setenv('PODCAST_ANALYSIS_BACKEND', request.param)
     return request.param
@@ -67,13 +72,20 @@ def install_process(monkeypatch, backend, actions):
             self.index = len(calls)
             self.wait_count = 0
             self.argv = argv
+            active_backend = argv[0] if argv[0] in {'pi', 'agy', 'codex'} else backend
+            self.stdin = io.BytesIO() if active_backend == 'pi' else None
             self.kwargs = kwargs
             calls.append(self)
             self.response = actions[self.index](Path(kwargs['cwd']), argv) or {}
             response = self.response
-            if backend == 'pi':
+            if active_backend == 'pi':
                 raw = response.get('raw', pi_events(response.get('stop', 'stop'), response.get('error'),
                                                    response.get('settled', True), response.get('model', 'k3')))
+            elif active_backend == 'codex':
+                raw = response.get('raw', json.dumps({
+                    'type': 'turn.failed' if response.get('error') or response.get('timeout') else 'turn.completed',
+                    'error': {'message': response.get('error')},
+                    'usage': {'input_tokens': 10}}).encode())
             else:
                 raw = response.get('raw', json.dumps({'status': response.get('status', 'SUCCESS'),
                         'error': response.get('error'), 'denied_actions': response.get('denied', []),
@@ -83,14 +95,22 @@ def install_process(monkeypatch, backend, actions):
             if response.get('cli_log'):
                 Path(argv[argv.index('--log-file') + 1]).write_text(response['cli_log'])
 
+        def poll(self):
+            return self.returncode
+
         def wait(self, timeout=None):
             self.wait_count += 1
             self.wait_timeout = timeout
-            if self.response.get('timeout') and self.wait_count == 1:
-                raise subprocess.TimeoutExpired(self.argv, timeout)
             self.returncode = self.response.get('code', -15 if self.response.get('timeout') else 0)
             return self.returncode
 
+    def monitor(process, output, prompt, config, diagnostic, on_update=None):
+        if process.response.get('timeout'):
+            diagnostic['timeout_reason'] = 'idle'
+            return True
+        return False
+
+    monkeypatch.setattr(analysis_runner, '_monitor', monitor)
     monkeypatch.setattr(analysis_runner.subprocess, 'Popen', Process)
     monkeypatch.setattr(analysis_runner.os, 'killpg', Mock())
     return calls
@@ -105,15 +125,15 @@ def run_folder(root):
     return root / '.analysis' / json.loads((root / '.analysis/state.json').read_text())['run']
 
 
-def test_default_config_is_pi_k3_high_20_minutes():
+def test_default_config_is_pi_k3_high_20_idle_minutes():
     config = AnalysisConfig.from_env()
-    assert (config.backend, config.model, config.thinking, config.timeout, config.attempts) == (
+    assert (config.backend, config.model, config.thinking, config.idle_timeout, config.attempts) == (
         'pi', 'kimi/k3', 'high', 1200, 2)
 
 
 @pytest.mark.parametrize('name,value', [('PODCAST_ANALYSIS_BACKEND', 'unknown'),
-    ('PODCAST_ANALYSIS_TIMEOUT_SECONDS', 'NaN'), ('PODCAST_ANALYSIS_TIMEOUT_SECONDS', 'inf'),
-    ('PODCAST_ANALYSIS_TIMEOUT_SECONDS', '0'), ('PODCAST_ANALYSIS_TIMEOUT_SECONDS', 'x'),
+    ('PODCAST_ANALYSIS_IDLE_TIMEOUT_SECONDS', 'NaN'), ('PODCAST_ANALYSIS_IDLE_TIMEOUT_SECONDS', 'inf'),
+    ('PODCAST_ANALYSIS_IDLE_TIMEOUT_SECONDS', '-1'), ('PODCAST_ANALYSIS_IDLE_TIMEOUT_SECONDS', 'x'),
     ('PODCAST_ANALYSIS_ATTEMPTS', '0'), ('PODCAST_ANALYSIS_ATTEMPTS', '6'),
     ('PODCAST_ANALYSIS_ATTEMPTS', '1.5')])
 def test_invalid_config_is_rejected(name, value, monkeypatch):
@@ -154,11 +174,18 @@ def test_generates_validates_and_publishes(backend, tmp_path, monkeypatch):
         assert '--no-session' in argv and '--no-extensions' in argv
         assert argv[argv.index('--skill') + 1].endswith('/.skills/podcast-to-article/SKILL.md')
         assert 'bash' not in argv[argv.index('--tools') + 1]
-        assert calls[0].wait_timeout == 1200
+        assert argv[argv.index('--mode') + 1] == 'rpc'
+        assert '--print' not in argv
+    elif backend == 'codex':
+        assert argv[argv.index('--model') + 1] == 'gpt-6.1-sol'
+        assert 'model_reasoning_effort="high"' in argv
+        assert '--json' in argv and '--ephemeral' in argv
+        assert argv[argv.index('--sandbox') + 1] == 'workspace-write'
+        assert not calls[0].kwargs['cwd'].is_relative_to(root)
     else:
-        assert argv[argv.index('--print-timeout') + 1] == '1200s'
+        assert argv[argv.index('--print-timeout') + 1] == '0'
         assert '--sandbox' in argv and '--log-file' in argv
-        assert calls[0].wait_timeout == 1215
+        assert argv[argv.index('--output-format') + 1] == 'stream-json'
 
 
 def test_slow_network_failure_retries_with_clean_workspace(backend, tmp_path, monkeypatch):
@@ -193,9 +220,9 @@ def test_slow_network_failure_retries_with_clean_workspace(backend, tmp_path, mo
 
 def test_timeout_saves_diagnostic_and_kills_group(backend, tmp_path, monkeypatch):
     root = result_dir(tmp_path, old=True)
-    monkeypatch.setenv('PODCAST_ANALYSIS_TIMEOUT_SECONDS', '1')
+    monkeypatch.setenv('PODCAST_ANALYSIS_IDLE_TIMEOUT_SECONDS', '1')
     calls = install_process(monkeypatch, backend, [lambda *args: {'timeout': True, 'settled': False, 'status': 'TIMEOUT'}])
-    with pytest.raises(AnalysisError, match='超时'):
+    with pytest.raises(AnalysisError, match='无可见进展'):
         analyzer.analyze(root)
     assert len(calls) == 1
     assert analysis_runner.os.killpg.call_args_list[0].args == (45678, signal.SIGTERM)
@@ -458,7 +485,155 @@ def test_health_reports_selected_backend(monkeypatch):
     from server import app
     monkeypatch.setattr(app, 'capabilities', lambda: {})
     monkeypatch.setattr(app.shutil, 'which', lambda name: '/bin/' + name)
-    assert app.health()['analysis'] == {'backend': 'pi', 'model': 'kimi/k3', 'thinking': 'high', 'available': True}
+    assert app.health()['analysis'] == {'backend': 'pi', 'model': 'kimi/k3', 'thinking': 'high', 'available': True, 'fallback': None}
     monkeypatch.setenv('PODCAST_ANALYSIS_BACKEND', 'agy')
     assert app.health()['analysis']['backend'] == 'agy'
     assert app.health()['analysis']['thinking'] is None
+
+
+@pytest.mark.parametrize('response', [
+    {'stop': 'error', 'error': 'quota exceeded'},
+    {'stop': 'error', 'error': 'HTTP 429'},
+    {'stop': 'error', 'error': 'request failed: EOF'},
+    {'stop': 'error', 'error': 'invalid API key'},
+    {'stop': 'error', 'code': 1},
+    {'settled': False},
+    {'timeout': True},
+])
+def test_pi_request_failure_switches_immediately_to_clean_codex(tmp_path, monkeypatch, response):
+    monkeypatch.delenv('PODCAST_ANALYSIS_FALLBACK')
+    root = result_dir(tmp_path, old=True)
+    original = (root / 'transcript.txt').read_bytes()
+
+    def fail(work, argv):
+        (work / 'article.md').write_text('partial')
+        return response
+
+    def succeed(work, argv):
+        assert argv[0] == 'codex'
+        assert not (work / 'article.md').exists()
+        write_all(work)
+
+    calls = install_process(monkeypatch, 'pi', [fail, succeed])
+    analyzer.analyze(root, {'url': URL})
+    assert [c.argv[0] for c in calls] == ['pi', 'codex']
+    analyzer.time.sleep.assert_not_called()
+    first, second = diagnostics(root)
+    assert first['fallback_to'] == 'codex' and first['cooldown_until']
+    assert second['route'] == 'request_failed' and second['validated']
+    assert second['model'] == 'gpt-6.1-sol' and second['thinking'] == 'high'
+    assert (root / 'transcript.txt').read_bytes() == original
+    saved = json.loads((run_folder(root) / 'generate.json').read_text())
+    assert saved['backend'] == 'codex' and saved['primary_backend'] == 'pi'
+    assert 3590 <= analysis_fallback.cooldown_status()['remaining_seconds'] <= 3600
+
+
+def test_cooldown_survives_reload_and_expiry_retries_pi(tmp_path, monkeypatch):
+    import importlib
+    monkeypatch.delenv('PODCAST_ANALYSIS_FALLBACK')
+    now = [10000.0]
+    monkeypatch.setattr(analysis_fallback.time, 'time', lambda: now[0])
+    root = result_dir(tmp_path)
+    calls = install_process(monkeypatch, 'pi', [
+        lambda *args: {'stop': 'error'},
+        lambda work, argv: write_all(work),
+        lambda work, argv: write_all(work),
+        lambda work, argv: write_all(work),
+    ])
+    analyzer.analyze(root, {'url': URL})
+    importlib.reload(analysis_fallback)
+    now[0] += 3599
+    other = tmp_path / 'another-task'
+    other.mkdir()
+    second_root = result_dir(other)
+    analyzer.analyze(second_root, {'url': URL})
+    assert diagnostics(second_root)[-1]['route'] == 'cooldown'
+    assert analysis_fallback.cooldown_status()['remaining_seconds'] == 1
+    now[0] += 1
+    analyzer.analyze(root, {'url': URL})
+    assert [c.argv[0] for c in calls] == ['pi', 'codex', 'codex', 'pi']
+    assert diagnostics(root)[-1]['route'] == 'primary'
+
+
+def test_failing_codex_does_not_loop_or_extend_cooldown(tmp_path, monkeypatch):
+    monkeypatch.delenv('PODCAST_ANALYSIS_FALLBACK')
+    now = [10000.0]
+    monkeypatch.setattr(analysis_fallback.time, 'time', lambda: now[0])
+    root = result_dir(tmp_path, old=True)
+
+    def fail_codex(work, argv):
+        now[0] += 200
+        return {'error': 'HTTP 503', 'code': 1}
+
+    calls = install_process(monkeypatch, 'pi', [lambda *args: {'stop': 'error'}, fail_codex, fail_codex])
+    with pytest.raises(AnalysisError, match='codex 生成失败'):
+        analyzer.analyze(root)
+    assert [c.argv[0] for c in calls] == ['pi', 'codex', 'codex']
+    assert analysis_fallback.cooldown_status()['remaining_seconds'] == 3200
+    assert (root / 'article.md').read_text() == 'old article.md'
+
+
+@pytest.mark.parametrize('mutation', ['missing_output', 'input_changed', 'input_deleted'])
+def test_local_validation_failure_does_not_switch_or_start_cooldown(tmp_path, monkeypatch, mutation):
+    monkeypatch.delenv('PODCAST_ANALYSIS_FALLBACK')
+    root = result_dir(tmp_path, old=True)
+
+    def fail(work, argv):
+        if mutation == 'input_changed':
+            (work / 'transcript.txt').write_text('changed')
+        elif mutation == 'input_deleted':
+            (work / 'transcript.txt').unlink()
+        return {'stop': 'error'} if mutation != 'missing_output' else {}
+
+    calls = install_process(monkeypatch, 'pi', [fail])
+    with pytest.raises(AnalysisError):
+        analyzer.analyze(root)
+    assert len(calls) == 1
+    assert not analysis_fallback.cooldown_status()['active']
+    assert (root / 'article.md').read_text() == 'old article.md'
+
+
+def test_health_reports_active_cooldown_without_secrets(tmp_path, monkeypatch):
+    from server import app
+    monkeypatch.delenv('PODCAST_ANALYSIS_FALLBACK')
+    monkeypatch.setattr(app, 'capabilities', lambda: {})
+    monkeypatch.setattr(app.shutil, 'which', lambda name: '/bin/' + name)
+    analysis_fallback.start_cooldown()
+    fallback = app.health()['analysis']['fallback']
+    assert fallback['backend'] == 'codex' and fallback['active']
+    assert fallback['cooldown_seconds'] == 3600
+    assert fallback['model'] == 'gpt-6.1-sol' and fallback['thinking'] == 'high'
+
+
+def test_corrupt_cooldown_is_not_overwritten(tmp_path, monkeypatch):
+    monkeypatch.delenv('PODCAST_ANALYSIS_FALLBACK')
+    path = analysis_fallback._state_path()
+    path.parent.mkdir(parents=True)
+    path.write_text('{bad json')
+    root = result_dir(tmp_path)
+    with pytest.raises(AnalysisError, match='备用状态损坏'):
+        analyzer.analyze(root)
+    assert path.read_text() == '{bad json'
+
+
+def test_missing_pi_executable_still_falls_back(tmp_path, monkeypatch):
+    monkeypatch.delenv('PODCAST_ANALYSIS_FALLBACK')
+    root = result_dir(tmp_path)
+
+    def missing(work, argv):
+        raise FileNotFoundError('pi missing')
+
+    calls = install_process(monkeypatch, 'pi', [missing, lambda work, argv: write_all(work)])
+    analyzer.analyze(root, {'url': URL}, executable='custom-pi')
+    assert [c.argv[0] for c in calls] == ['custom-pi', 'codex']
+    assert diagnostics(root)[0]['error_category'] == 'startup'
+
+
+def test_default_fallback_and_invalid_selection(monkeypatch):
+    monkeypatch.delenv('PODCAST_ANALYSIS_FALLBACK')
+    assert AnalysisConfig.from_env().fallback_backend == 'codex'
+    monkeypatch.setenv('PODCAST_ANALYSIS_BACKEND', 'codex')
+    assert AnalysisConfig.from_env().fallback_backend is None
+    monkeypatch.setenv('PODCAST_ANALYSIS_FALLBACK', 'unknown')
+    with pytest.raises(AnalysisError, match='FALLBACK'):
+        AnalysisConfig.from_env()
