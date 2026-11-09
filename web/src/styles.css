@@ -805,6 +805,7 @@ button:disabled {
 }
 .reader {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 15px;
 }
 .tabs {
@@ -855,6 +856,7 @@ button:disabled {
   color: var(--soft);
   font-size: 15px;
   line-height: 1.88;
+  overflow-wrap: anywhere;
 }
 .description-text {
   max-width: 780px;
