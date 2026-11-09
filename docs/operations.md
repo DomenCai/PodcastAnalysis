@@ -1,6 +1,6 @@
 # 运维
 
-生产服务均监听 localhost：ASR `18010`、管理 `18000`、只读 `8001`。Cloudflare Tunnel 仅转发只读端口。开发启动、CLI 和常驻服务使用同一组默认端口。`scripts/services.py` 生成独立 launchd plist，Python 服务统一使用各项目 `.venv/bin/python`，机器人使用解析后的 Node 路径；使用 `zsh -lc` 读取用户 shell 环境，日志在 `data/logs/`。机器人另外读取 `bot/data/lark.json`。不要将管理端、ASR 端或机器人配置文件置于公网。
+生产服务均监听 localhost：ASR `18010`、管理 `18000`、只读 `8001`。公网只开放只读端口：`podcast.fullai.top` → vps-hk Caddy → `ssh -R`（vps-hk `18080`，launchd `top.domencai.mac-caddy-tunnel`）→ 本机 Caddy `127.0.0.1:8080`（`/opt/homebrew/etc/Caddyfile`，按域名分发）→ `8001`。本机 Caddyfile 里该域名只许指向 `8001`。原 Cloudflare Tunnel 规则仅作回退，原专用隧道 `top.fullai.podcast-tunnel` 已于 2026-11-09 停用。开发启动、CLI 和常驻服务使用同一组默认端口。`scripts/services.py` 生成独立 launchd plist，Python 服务统一使用各项目 `.venv/bin/python`，机器人使用解析后的 Node 路径；使用 `zsh -lc` 读取用户 shell 环境，日志在 `data/logs/`。机器人另外读取 `bot/data/lark.json`。不要将管理端、ASR 端或机器人配置文件置于公网。
 
 检查健康：`curl http://127.0.0.1:18010/health`、`curl http://127.0.0.1:18000/api/health`、`curl http://127.0.0.1:8001/api/health`。公开列表为 `/podcasts`，根路径应为 404，写请求应为 405。修改前端后先 `cd web && npm run build`，再重启只读和管理服务以读取新资源。
 
@@ -55,7 +55,7 @@ Codex 使用 `codex exec --json --ephemeral --sandbox workspace-write --model gp
 
 后端 270 项、前端 9 项测试与前端构建通过。自动切换和冷却规则以模拟故障验证，真实模型测试验证 Codex 生成及校验链路。
 
-生产管理服务尚未重启，运行进程仍使用旧代码。启用时先确认队列空闲，再通过现有服务脚本重启 manager，检查健康接口的 `analysis.fallback`。已有逐字稿的失败任务使用“仅重新分析”，不必重新转录；不要批量自动重跑历史任务。
+2026-10-19 18:35（Asia/Shanghai）确认管理任务和订阅队列均空闲后，通过现有服务脚本重启 manager，备用逻辑已上线。此前进程启动于 10 月 9 日，#777、#778、东北到东亚、#779 的失败诊断仍是 v2，仅调用 pi；最新三次约 18 秒失败，没有尝试 Codex。重启后健康接口已显示 `analysis.fallback` 为 codex / gpt-6.1-sol / high、CLI available、冷却 3600 秒。管理、ASR、只读健康均为 200；任务记录、四份逐字稿和通知账本哈希未变，未重跑历史任务。验证记录在 `out/maintenance-20261019-183546-activate-codex/`。已有逐字稿的失败任务使用“仅重新分析”，不必重新转录；不要批量自动重跑历史任务。
 
 ### 2026-10-09 空闲监测验收
 
