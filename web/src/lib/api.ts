@@ -95,12 +95,17 @@ export const api = {
       url: string;
       poll_interval_minutes: number;
       initial_backfill: number;
+      auto_process: boolean;
     } & ProcessingOptions,
   ) => mutate<Subscription>("/api/subscriptions", "POST", payload),
   checkSubscription: (id: number) =>
     mutate<void>(`/api/subscriptions/${id}/check`, "POST"),
   setSubscriptionEnabled: (id: number, enabled: boolean) =>
     mutate<void>(`/api/subscriptions/${id}/enabled`, "PUT", { enabled }),
+  setSubscriptionAutoProcess: (id: number, auto_process: boolean) =>
+    mutate<void>(`/api/subscriptions/${id}/auto-process`, "PUT", {
+      auto_process,
+    }),
   setSubscriptionOptions: (id: number, options: ProcessingOptions) =>
     mutate<void>(`/api/subscriptions/${id}/options`, "PUT", options),
   deleteSubscription: (id: number) =>
@@ -114,6 +119,17 @@ export const api = {
       "POST",
       options ?? {},
     ),
+  transcribeSubscriptionEpisode: (
+    id: number,
+    options?: Partial<ProcessingOptions>,
+  ) =>
+    mutate<void>(
+      `/api/subscription-episodes/${id}/transcribe`,
+      "POST",
+      options ?? {},
+    ),
+  dismissSubscriptionEpisode: (id: number) =>
+    mutate<void>(`/api/subscription-episodes/${id}/dismiss`, "POST"),
   analyzeSubscriptionEpisode: (id: number) =>
     mutate<void>(`/api/subscription-episodes/${id}/analyze`, "POST"),
   episode: (id: number) => json<PublicEpisode>(`/api/episodes/${id}`),

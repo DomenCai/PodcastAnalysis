@@ -246,10 +246,15 @@ class SubscriptionCreate(BaseModel):
     backend: Literal["qwen", "whisper", "mimo"] = "qwen"
     skip_diarization: bool = True
     num_speakers: int | None = Field(None, ge=1, le=32)
+    auto_process: bool = True
 
 
 class SubscriptionEnabled(BaseModel):
     enabled: bool
+
+
+class SubscriptionAutoProcess(BaseModel):
+    auto_process: bool
 
 
 @app.get("/api/subscriptions")
@@ -285,6 +290,17 @@ def set_subscription_enabled(
         raise HTTPException(status_code=404, detail="subscription not found")
     subscription_service._wake.set()
     return {"enabled": payload.enabled}
+
+
+@app.put("/api/subscriptions/{subscription_id}/auto-process")
+def set_subscription_auto_process(
+    subscription_id: int, payload: SubscriptionAutoProcess
+) -> dict:
+    if not subscription_service.store.set_auto_process(
+        subscription_id, payload.auto_process
+    ):
+        raise HTTPException(status_code=404, detail="subscription not found")
+    return {"auto_process": payload.auto_process}
 
 
 @app.put("/api/subscriptions/{subscription_id}/options")
@@ -348,6 +364,40 @@ def retry_subscription_episode(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _queue_subscription_episode(episode_id, changes=changes)
+
+
+@app.get("/api/subscription-episodes/awaiting")
+def list_awaiting_episodes(
+    subscription_id: int | None = None, limit: int = 50
+) -> list[dict]:
+    if not 1 <= limit <= 200:
+        raise HTTPException(status_code=400, detail="limit 必须在 1 到 200 之间")
+    return subscription_service.store.list_awaiting_episodes(subscription_id, limit)
+
+
+@app.post("/api/subscription-episodes/{episode_id}/transcribe", status_code=202)
+def transcribe_subscription_episode(
+    episode_id: int, payload: OptionsUpdate | None = None
+) -> dict:
+    try:
+        changes = payload.changes() if payload else {}
+        if not subscription_service.store.approve_episode(episode_id, **changes):
+            if not subscription_service.store.get_episode(episode_id):
+                raise HTTPException(status_code=404, detail="episode not found")
+            raise HTTPException(status_code=409, detail="只有待确认或已忽略的单集可以开始转写")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    subscription_service._wake.set()
+    return {"queued": True}
+
+
+@app.post("/api/subscription-episodes/{episode_id}/dismiss")
+def dismiss_subscription_episode(episode_id: int) -> dict:
+    if not subscription_service.store.dismiss_episode(episode_id):
+        if not subscription_service.store.get_episode(episode_id):
+            raise HTTPException(status_code=404, detail="episode not found")
+        raise HTTPException(status_code=409, detail="只有待确认的单集可以忽略")
+    return {"status": "ignored"}
 
 
 @app.post("/api/subscription-episodes/{episode_id}/analyze", status_code=202)

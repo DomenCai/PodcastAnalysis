@@ -34,6 +34,7 @@ export function statusLabel(
         done: "已完成",
         error: "失败",
         pending: "等待中",
+        awaiting: "待确认",
         processing: "处理中",
         failed: "失败",
         ignored: "已忽略",

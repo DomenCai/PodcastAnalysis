@@ -1456,3 +1456,62 @@ button:disabled {
     padding-inline: 10px;
   }
 }
+
+.badge.warning {
+  background: var(--accent-soft);
+  color: var(--warn);
+}
+.awaiting-text b {
+  color: var(--warn);
+}
+.subscription-config .mode-chip {
+  font-size: 10px;
+  color: var(--soft);
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  padding: 3px 8px;
+}
+.subscription-config .mode-chip.manual {
+  color: var(--warn);
+  border-color: currentColor;
+}
+.episode-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.awaiting-filter {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 15px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.mini-actions button.mini-primary {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+.episode-detail {
+  margin: 0 0 14px;
+  padding: 13px 15px;
+  border-radius: 10px;
+  background: var(--panel-soft);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--soft);
+}
+.episode-detail p {
+  margin: 0 0 8px;
+  white-space: pre-wrap;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.episode-detail a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}

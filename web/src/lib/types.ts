@@ -65,6 +65,8 @@ export type Subscription = {
   pending_count: number;
   processing_count: number;
   failed_count: number;
+  awaiting_count: number;
+  auto_process: boolean;
   poll_interval_minutes: number;
   backend: Backend;
   skip_diarization: boolean;
@@ -72,12 +74,19 @@ export type Subscription = {
 };
 
 export type SubscriptionEpisodeStatus =
-  "pending" | "processing" | "done" | "failed" | "ignored" | "skipped";
+  | "pending"
+  | "awaiting"
+  | "processing"
+  | "done"
+  | "failed"
+  | "ignored"
+  | "skipped";
 
 export type SubscriptionEpisode = {
   id: number;
   eid: string;
   title: string;
+  description?: string;
   episode_url: string;
   status: SubscriptionEpisodeStatus;
   published_at: string;

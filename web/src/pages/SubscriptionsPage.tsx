@@ -1,7 +1,10 @@
 import {
   BookOpenText,
   ChevronDown,
+  EyeOff,
   ExternalLink,
+  FileText,
+  Play,
   Plus,
   RefreshCw,
   Sparkles,
@@ -61,7 +64,9 @@ export function SubscriptionsPage({ health }: { health: Health }) {
         <div>
           <span className="eyebrow">SUBSCRIPTIONS</span>
           <h1>播客订阅</h1>
-          <p>按固定间隔检查小宇宙，未来单集使用各订阅保存的默认配置。</p>
+          <p>
+            按固定间隔检查小宇宙，未来单集使用各订阅保存的默认配置。手动确认的订阅只发现单集，看过详情后再决定是否转写。
+          </p>
         </div>
         <button
           className="primary"
@@ -115,6 +120,7 @@ function NewSubscription({
   const [url, setUrl] = useState(""),
     [interval, setIntervalValue] = useState(30),
     [backfill, setBackfill] = useState(1),
+    [autoProcess, setAutoProcess] = useState(true),
     [options, setOptions] = useState<Options>(() =>
       defaultProcessingOptions(health),
     ),
@@ -129,6 +135,7 @@ function NewSubscription({
         url: url.trim(),
         poll_interval_minutes: interval,
         initial_backfill: backfill,
+        auto_process: autoProcess,
         ...options,
       });
       await onCreated();
@@ -178,6 +185,16 @@ function NewSubscription({
           />
         </label>
       </div>
+      <label className="field">
+        <span>新单集处理方式</span>
+        <select
+          value={autoProcess ? "auto" : "manual"}
+          onChange={(event) => setAutoProcess(event.target.value === "auto")}
+        >
+          <option value="auto">自动转写</option>
+          <option value="manual">先看详情，手动确认后再转写</option>
+        </select>
+      </label>
       <ProcessingOptions
         value={options}
         health={health}
@@ -211,7 +228,11 @@ function SubscriptionCard({
       num_speakers: item.num_speakers,
     }),
     [busy, setBusy] = useState<string | null>(null),
-    [error, setError] = useState<string | null>(null);
+    [error, setError] = useState<string | null>(null),
+    [awaitingOnly, setAwaitingOnly] = useState(false);
+  const visibleEpisodes = awaitingOnly
+    ? episodes.filter((episode) => episode.status === "awaiting")
+    : episodes;
   const loadEpisodes = useCallback(async () => {
     setLoadingEpisodes(true);
     try {
@@ -339,6 +360,11 @@ function SubscriptionCard({
         <span>
           <b>{item.processing_count}</b> 处理中
         </span>
+        {(!item.auto_process || item.awaiting_count > 0) && (
+          <span className={item.awaiting_count ? "awaiting-text" : ""}>
+            <b>{item.awaiting_count}</b> 待确认
+          </span>
+        )}
         <span className={item.failed_count ? "warn-text" : ""}>
           <b>{item.failed_count}</b> 失败
         </span>
@@ -351,6 +377,20 @@ function SubscriptionCard({
             : `${item.num_speakers ?? "自动"} 位说话人`}
         </span>
         <span>每 {item.poll_interval_minutes} 分钟检查</span>
+        <button
+          className={
+            item.auto_process ? "mode-chip" : "mode-chip manual"
+          }
+          disabled={!!busy}
+          title="切换只影响之后发现的新单集"
+          onClick={() =>
+            void run("mode", () =>
+              api.setSubscriptionAutoProcess(item.id, !item.auto_process),
+            )
+          }
+        >
+          {item.auto_process ? "新单集自动转写" : "新单集手动确认"}
+        </button>
         <button
           className="text-button"
           onClick={() => setEditing((value) => !value)}
@@ -390,17 +430,30 @@ function SubscriptionCard({
         </div>
       )}
       {error && <ErrorState message={error} />}
-      <button className="episode-toggle" onClick={toggleEpisodes}>
-        查看单集 <ChevronDown size={16} className={expanded ? "rotated" : ""} />
-      </button>
+      <div className="episode-toggle-row">
+        <button className="episode-toggle" onClick={toggleEpisodes}>
+          查看单集{" "}
+          <ChevronDown size={16} className={expanded ? "rotated" : ""} />
+        </button>
+        {expanded && item.awaiting_count > 0 && (
+          <label className="awaiting-filter">
+            <input
+              type="checkbox"
+              checked={awaitingOnly}
+              onChange={(event) => setAwaitingOnly(event.target.checked)}
+            />
+            只看待确认
+          </label>
+        )}
+      </div>
       {expanded && (
         <div className="admin-episodes">
           {loadingEpisodes ? (
             <Loading label="正在读取单集" />
-          ) : !episodes.length ? (
-            <Empty title="暂无单集" />
+          ) : !visibleEpisodes.length ? (
+            <Empty title={awaitingOnly ? "没有待确认的单集" : "暂无单集"} />
           ) : (
-            episodes.map((episode) => (
+            visibleEpisodes.map((episode) => (
               <EpisodeAdminRow
                 key={episode.id}
                 episode={episode}
@@ -411,6 +464,24 @@ function SubscriptionCard({
                   run(
                     `retry-${episode.id}`,
                     () => api.retrySubscriptionEpisode(episode.id, nextOptions),
+                    true,
+                  )
+                }
+                onTranscribe={(nextOptions) =>
+                  run(
+                    `transcribe-${episode.id}`,
+                    () =>
+                      api.transcribeSubscriptionEpisode(
+                        episode.id,
+                        nextOptions,
+                      ),
+                    true,
+                  )
+                }
+                onDismiss={() =>
+                  run(
+                    `dismiss-${episode.id}`,
+                    () => api.dismissSubscriptionEpisode(episode.id),
                     true,
                   )
                 }
@@ -436,6 +507,8 @@ function EpisodeAdminRow({
   health,
   busy,
   onRetry,
+  onTranscribe,
+  onDismiss,
   onAnalyze,
 }: {
   episode: SubscriptionEpisode;
@@ -443,9 +516,12 @@ function EpisodeAdminRow({
   health: Health;
   busy: boolean;
   onRetry: (options: Options) => Promise<boolean>;
+  onTranscribe: (options: Options) => Promise<boolean>;
+  onDismiss: () => Promise<boolean>;
   onAnalyze: () => Promise<boolean>;
 }) {
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState<"retry" | "transcribe" | null>(null),
+    [showDetail, setShowDetail] = useState(episode.status === "awaiting");
   const resolvedOptions = (): Options => {
     const skipDiarization =
       episode.skip_diarization ?? subscription.skip_diarization;
@@ -463,9 +539,11 @@ function EpisodeAdminRow({
   useEffect(() => {
     if (!editing) setOptions(resolvedOptions());
   }, [editing, episode, subscription]);
+  // Never-processed episodes start a first transcription; others re-run.
+  const canTranscribe =
+    episode.status === "awaiting" || episode.status === "ignored";
   const canRetranscribe =
     episode.status === "done" ||
-    episode.status === "ignored" ||
     episode.status === "failed" ||
     episode.status === "skipped";
   const canAnalyze =
@@ -485,6 +563,42 @@ function EpisodeAdminRow({
         </span>
         <StatusBadge status={episode.status} />
         <div className="mini-actions">
+          <button
+            onClick={() => setShowDetail((value) => !value)}
+            title="查看单集简介"
+          >
+            <FileText size={14} />
+            {showDetail ? "收起" : "详情"}
+          </button>
+          {canTranscribe && (
+            <button
+              className="mini-primary"
+              disabled={busy}
+              onClick={() => void onTranscribe(resolvedOptions())}
+            >
+              <Play size={14} />
+              转写
+            </button>
+          )}
+          {canTranscribe && (
+            <button
+              disabled={busy}
+              title="用其他配置转写这一集"
+              onClick={() =>
+                setEditing((value) =>
+                  value === "transcribe" ? null : "transcribe",
+                )
+              }
+            >
+              配置
+            </button>
+          )}
+          {episode.status === "awaiting" && (
+            <button disabled={busy} onClick={() => void onDismiss()}>
+              <EyeOff size={14} />
+              忽略
+            </button>
+          )}
           {episode.status === "done" && (
             <button
               onClick={() =>
@@ -498,7 +612,9 @@ function EpisodeAdminRow({
           {canRetranscribe && (
             <button
               disabled={busy}
-              onClick={() => setEditing((value) => !value)}
+              onClick={() =>
+                setEditing((value) => (value === "retry" ? null : "retry"))
+              }
             >
               <RefreshCw size={14} />
               重新转写
@@ -518,10 +634,25 @@ function EpisodeAdminRow({
           )}
         </div>
       </div>
+      {showDetail && (
+        <div className="episode-detail">
+          {episode.description?.trim() ? (
+            <p>{episode.description.trim()}</p>
+          ) : (
+            <p className="muted">这一集没有简介。</p>
+          )}
+          <a href={episode.episode_url} target="_blank" rel="noreferrer">
+            <ExternalLink size={13} />
+            在小宇宙打开
+          </a>
+        </div>
+      )}
       {editing && (
         <div className="episode-retry-editor">
           <div>
-            <strong>本次重新转写配置</strong>
+            <strong>
+              {editing === "transcribe" ? "本次转写配置" : "本次重新转写配置"}
+            </strong>
             <p>仅用于这一集，不修改订阅未来默认值。</p>
           </div>
           <ProcessingOptions
@@ -533,7 +664,7 @@ function EpisodeAdminRow({
           <div className="inline-actions">
             <button
               className="secondary compact"
-              onClick={() => setEditing(false)}
+              onClick={() => setEditing(null)}
             >
               取消
             </button>
@@ -541,8 +672,10 @@ function EpisodeAdminRow({
               className="primary compact"
               disabled={busy}
               onClick={() =>
-                void onRetry(options).then((queued) => {
-                  if (queued) setEditing(false);
+                void (editing === "transcribe" ? onTranscribe : onRetry)(
+                  options,
+                ).then((queued) => {
+                  if (queued) setEditing(null);
                 })
               }
             >

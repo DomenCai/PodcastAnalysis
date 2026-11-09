@@ -499,3 +499,72 @@ def test_queued_job_does_not_block_later_subscription_discovery(tmp_path, monkey
         assert checked.wait(1), "queued job blocked the subscription discovery loop"
     finally:
         service.stop()
+
+
+def test_manual_subscription_parks_new_episodes_until_approved(tmp_path):
+    store = SubscriptionStore(tmp_path / "podcast.db")
+    store.initialize()
+    sub = store.create_subscription(
+        PODCAST, poll_interval_minutes=30, initial_backfill=1, auto_process=False
+    )
+    assert sub["auto_process"] is False
+    statuses = {e["eid"]: e["status"] for e in store.list_episodes(sub["id"])}
+    assert statuses == {"c" * 24: "awaiting", "b" * 24: "ignored", "a" * 24: "skipped"}
+    assert store.claim_next_episode() is None
+
+    newer = {
+        **PODCAST,
+        "episodes": [
+            {
+                **PODCAST["episodes"][0],
+                "eid": "d" * 24,
+                "episode_url": "https://www.xiaoyuzhoufm.com/episode/" + "d" * 24,
+            }
+        ],
+    }
+    assert store.update_discovery(sub["id"], newer) == 1
+    rows = {e["eid"]: e for e in store.list_episodes(sub["id"])}
+    assert rows["d" * 24]["status"] == "awaiting"
+    assert store.list_subscriptions()[0]["awaiting_count"] == 2
+    awaiting = store.list_awaiting_episodes()
+    assert {e["eid"] for e in awaiting} == {"d" * 24, "c" * 24}
+    assert awaiting[0]["podcast_title"] == "测试播客"
+    assert store.list_awaiting_episodes(sub["id"] + 1) == []
+
+    assert store.dismiss_episode(rows["c" * 24]["id"]) is True
+    assert store.get_episode(rows["c" * 24]["id"])["status"] == "ignored"
+    assert store.approve_episode(rows["d" * 24]["id"], backend="mimo") is True
+    approved = store.get_episode(rows["d" * 24]["id"])
+    assert (approved["status"], approved["operation"], approved["backend"]) == (
+        "pending",
+        "transcribe",
+        "mimo",
+    )
+    assert store.approve_episode(rows["d" * 24]["id"]) is False
+    assert store.claim_next_episode()["eid"] == "d" * 24
+
+
+def test_switching_auto_process_only_affects_future_discovery(tmp_path):
+    store = SubscriptionStore(tmp_path / "podcast.db")
+    store.initialize()
+    sub = store.create_subscription(PODCAST, poll_interval_minutes=30, initial_backfill=1)
+    assert sub["auto_process"] is True
+    assert store.set_auto_process(sub["id"], False) is True
+    newer = {
+        **PODCAST,
+        "episodes": [
+            {
+                **PODCAST["episodes"][0],
+                "eid": "d" * 24,
+                "episode_url": "https://www.xiaoyuzhoufm.com/episode/" + "d" * 24,
+            }
+        ],
+    }
+    store.update_discovery(sub["id"], newer)
+    rows = {e["eid"]: e["status"] for e in store.list_episodes(sub["id"])}
+    assert rows["c" * 24] == "pending"
+    assert rows["d" * 24] == "awaiting"
+    assert store.set_auto_process(sub["id"], True) is True
+    assert store.get_episode(
+        next(e["id"] for e in store.list_episodes(sub["id"]) if e["eid"] == "d" * 24)
+    )["status"] == "awaiting"

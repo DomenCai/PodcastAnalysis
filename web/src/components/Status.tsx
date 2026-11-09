@@ -11,7 +11,9 @@ export function StatusBadge({
       ? "success"
       : status === "error" || status === "failed"
         ? "danger"
-        : status === "running" ||
+        : status === "awaiting"
+          ? "warning"
+          : status === "running" ||
             status === "processing" ||
             status === "queued" ||
             status === "pending"

@@ -119,6 +119,9 @@ class SubscriptionStore:
                     "skip_diarization": "INTEGER NOT NULL DEFAULT 1",
                     "num_speakers": "INTEGER",
                 }
+                if table == "subscriptions":
+                    # 1 = queue new episodes automatically; 0 = wait for owner.
+                    additions["auto_process"] = "INTEGER NOT NULL DEFAULT 1"
                 if table == "subscription_episodes":
                     additions.update(
                         {
@@ -150,6 +153,7 @@ class SubscriptionStore:
         backend: str = "qwen",
         skip_diarization: bool = True,
         num_speakers: int | None = None,
+        auto_process: bool = True,
     ) -> dict[str, Any]:
         options = ProcessingOptions(backend, skip_diarization, num_speakers)
         now = _now()
@@ -182,11 +186,12 @@ class SubscriptionStore:
                 raise ValueError("这个播客已经订阅") from exc
             subscription_id = int(cursor.lastrowid)
             db.execute(
-                "UPDATE subscriptions SET backend = ?, skip_diarization = ?, num_speakers = ? WHERE id = ?",
+                "UPDATE subscriptions SET backend = ?, skip_diarization = ?, num_speakers = ?, auto_process = ? WHERE id = ?",
                 (
                     options.backend,
                     int(options.skip_diarization),
                     options.num_speakers,
+                    int(bool(auto_process)),
                     subscription_id,
                 ),
             )
@@ -255,13 +260,19 @@ class SubscriptionStore:
         now = _now()
         inserted = 0
         processable_seen = 0
+        mode = db.execute(
+            "SELECT auto_process FROM subscriptions WHERE id = ?", (subscription_id,)
+        ).fetchone()
+        # Manual subscriptions park new episodes as "awaiting" until the owner
+        # reads the details and explicitly asks for transcription.
+        queued = "pending" if mode is None or mode["auto_process"] else "awaiting"
         for episode in episodes:
             processable = bool(episode.get("processable"))
             if initial and processable:
-                status = "pending" if processable_seen < initial_backfill else "ignored"
+                status = queued if processable_seen < initial_backfill else "ignored"
                 processable_seen += 1
             elif processable:
-                status = "pending"
+                status = queued
             else:
                 status = "skipped"
             cursor = db.execute(
@@ -320,7 +331,7 @@ class SubscriptionStore:
                 continue
             next_status = existing["status"]
             if next_status == "skipped" and processable:
-                next_status = "pending"
+                next_status = queued
             db.execute(
                 """
                 UPDATE subscription_episodes SET
@@ -355,7 +366,8 @@ class SubscriptionStore:
                     SUM(CASE WHEN e.status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
                     SUM(CASE WHEN e.status = 'processing' THEN 1 ELSE 0 END) AS processing_count,
                     SUM(CASE WHEN e.status = 'done' THEN 1 ELSE 0 END) AS done_count,
-                    SUM(CASE WHEN e.status = 'failed' THEN 1 ELSE 0 END) AS failed_count
+                    SUM(CASE WHEN e.status = 'failed' THEN 1 ELSE 0 END) AS failed_count,
+                    SUM(CASE WHEN e.status = 'awaiting' THEN 1 ELSE 0 END) AS awaiting_count
                 FROM subscriptions s
                 LEFT JOIN subscription_episodes e ON e.subscription_id = s.id
                 GROUP BY s.id
@@ -375,12 +387,14 @@ class SubscriptionStore:
     def _serialize_subscription(value: dict[str, Any]) -> dict[str, Any]:
         value["enabled"] = bool(value.get("enabled"))
         value["skip_diarization"] = bool(value.get("skip_diarization", True))
+        value["auto_process"] = bool(value.get("auto_process", 1))
         for name in (
             "discovered_count",
             "pending_count",
             "processing_count",
             "done_count",
             "failed_count",
+            "awaiting_count",
         ):
             value[name] = int(value.get(name) or 0)
         return value
@@ -403,6 +417,29 @@ class SubscriptionStore:
             value["is_private"] = bool(value["is_private"])
             value["skip_diarization"] = bool(value.get("skip_diarization", True))
         return values
+
+    def list_awaiting_episodes(
+        self, subscription_id: int | None = None, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        query = """
+            SELECT e.*, s.title AS podcast_title
+            FROM subscription_episodes e
+            JOIN subscriptions s ON s.id = e.subscription_id
+            WHERE e.status = 'awaiting'
+        """
+        values: list[Any] = []
+        if subscription_id is not None:
+            query += " AND e.subscription_id = ?"
+            values.append(subscription_id)
+        query += " ORDER BY COALESCE(e.published_at, e.discovered_at) DESC LIMIT ?"
+        values.append(limit)
+        with self.connect() as db:
+            rows = db.execute(query, values).fetchall()
+        values_out = [dict(row) for row in rows]
+        for value in values_out:
+            value["is_private"] = bool(value["is_private"])
+            value["skip_diarization"] = bool(value.get("skip_diarization", True))
+        return values_out
 
     def get_episode(self, episode_id: int) -> dict[str, Any] | None:
         with self.connect() as db:
@@ -468,6 +505,60 @@ class SubscriptionStore:
                 WHERE id = ?
                 """,
                 (int(enabled), _now() if enabled else None, _now(), subscription_id),
+            )
+        return bool(cursor.rowcount)
+
+    def set_auto_process(self, subscription_id: int, auto_process: bool) -> bool:
+        # Only affects episodes discovered later; existing awaiting episodes stay
+        # parked so switching back to automatic never floods the queue.
+        with self.connect() as db:
+            cursor = db.execute(
+                "UPDATE subscriptions SET auto_process = ?, updated_at = ? WHERE id = ?",
+                (int(bool(auto_process)), _now(), subscription_id),
+            )
+        return bool(cursor.rowcount)
+
+    def approve_episode(self, episode_id: int, **changes) -> bool:
+        """Queue a never-processed (awaiting/ignored) episode for first transcription."""
+        with self.connect() as db:
+            existing = db.execute(
+                "SELECT * FROM subscription_episodes WHERE id = ?", (episode_id,)
+            ).fetchone()
+            if not existing or existing["status"] not in {"awaiting", "ignored"}:
+                return False
+            options = ProcessingOptions(
+                **{
+                    name: changes.get(
+                        name,
+                        bool(existing[name])
+                        if name == "skip_diarization"
+                        else existing[name],
+                    )
+                    for name in ("backend", "skip_diarization", "num_speakers")
+                }
+            )
+            cursor = db.execute(
+                """UPDATE subscription_episodes SET status = 'pending', error = NULL,
+                    finished_at = NULL, backend = ?, skip_diarization = ?, num_speakers = ?,
+                    operation = 'transcribe', updated_at = ?
+                    WHERE id = ? AND status = ?""",
+                (
+                    options.backend,
+                    int(options.skip_diarization),
+                    options.num_speakers,
+                    _now(),
+                    episode_id,
+                    existing["status"],
+                ),
+            )
+        return bool(cursor.rowcount)
+
+    def dismiss_episode(self, episode_id: int) -> bool:
+        with self.connect() as db:
+            cursor = db.execute(
+                """UPDATE subscription_episodes SET status = 'ignored', updated_at = ?
+                    WHERE id = ? AND status = 'awaiting'""",
+                (_now(), episode_id),
             )
         return bool(cursor.rowcount)
 
@@ -754,6 +845,7 @@ class PodcastSubscriptionService:
         backend: str = "qwen",
         skip_diarization: bool = True,
         num_speakers: int | None = None,
+        auto_process: bool = True,
     ) -> dict[str, Any]:
         if not 5 <= poll_interval_minutes <= 10080:
             raise ValueError("检查间隔必须在 5 分钟到 7 天之间")
@@ -766,6 +858,7 @@ class PodcastSubscriptionService:
             feed,
             poll_interval_minutes=poll_interval_minutes,
             initial_backfill=initial_backfill,
+            auto_process=auto_process,
             **options.to_dict(),
         )
         self._wake.set()
