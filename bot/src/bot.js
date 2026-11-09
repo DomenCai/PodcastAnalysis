@@ -2,7 +2,7 @@ import { createLarkChannel } from "@larksuite/channel";
 import { api, createEpisode } from "./api.js";
 import { readConfig } from "./config.js";
 import { Ledger } from "./ledger.js";
-import { completionCard, episodeForm, failureCard, helpCard, jobsCard, resultCard, subscriptionForm, subscriptionsCard } from "./cards.js";
+import { awaitingCard, awaitingListCard, completionCard, episodeForm, failureCard, helpCard, jobsCard, resultCard, subscriptionForm, subscriptionsCard } from "./cards.js";
 import { normalizeUrl } from "./validation.js";
 import { deliverNotification } from "./notifications.js";
 import { allowedAction, allowedMessage } from "./auth.js";
@@ -33,6 +33,12 @@ const sendCard = (chatId, card) => channel.send(chatId, { card });
 const defer = (label, operation) => {
   setImmediate(() => Promise.resolve().then(operation).catch((error) => logError(label, error)));
 };
+
+function subscribedText(result) {
+  return result.auto_process === false
+    ? `已订阅「${result.title}」，每 30 分钟检查更新。新单集会先推送详情，确认后再转写。`
+    : `已订阅「${result.title}」，每 30 分钟检查更新。`;
+}
 
 function backendOf(value) {
   return value === "mimo" ? "mimo" : "qwen";
@@ -82,15 +88,15 @@ async function handleAction(evt) {
         const url = normalizeUrl(form.url, "podcast");
         const initial_backfill = Number(form.initial_backfill ?? 1);
         if (![0, 1, 3].includes(initial_backfill)) throw new Error("初始处理集数只能是 0、1 或 3");
-        try { result = await api("/api/subscriptions", "POST", { url, backend: backendOf(form.backend), initial_backfill, poll_interval_minutes: 30 }); }
+        const auto_process = form.auto_process !== "manual";
+        try { result = await api("/api/subscriptions", "POST", { url, backend: backendOf(form.backend), initial_backfill, poll_interval_minutes: 30, auto_process }); }
         catch (error) {
           result = (await api("/api/subscriptions")).find((item) => item.source_url === url);
           if (!result) throw error;
         }
         } catch (error) { ledger.failSubmission(value.token); throw error; }
         await finishAndPresent(ledger, value.token, result.id, channel, evt.messageId, chatId,
-          resultCard(`已订阅「${result.title}」，每 30 分钟检查更新。`),
-          `已订阅「${result.title}」，每 30 分钟检查更新。`);
+          resultCard(subscribedText(result)), subscribedText(result));
         return;
       }
       if (act === "retry_job" || act === "analyze_job") {
@@ -100,6 +106,22 @@ async function handleAction(evt) {
       if (act === "toggle_subscription") {
         await api(`/api/subscriptions/${Number(value.id)}/enabled`, "PUT", { enabled: value.enabled === true });
         return await sendCard(chatId, subscriptionsCard(await api("/api/subscriptions")));
+      }
+      if (act === "set_auto_process") {
+        await api(`/api/subscriptions/${Number(value.id)}/auto-process`, "PUT", { auto_process: value.auto_process === true });
+        return await sendCard(chatId, subscriptionsCard(await api("/api/subscriptions")));
+      }
+      if (act === "awaiting") {
+        const scope = Number.isInteger(value.id) ? `&subscription_id=${value.id}` : "";
+        return await sendCard(chatId, awaitingListCard(await api(`/api/subscription-episodes/awaiting?limit=10${scope}`)));
+      }
+      if (act === "transcribe_episode") {
+        await api(`/api/subscription-episodes/${Number(value.id)}/transcribe`, "POST");
+        return await sendText(chatId, "已加入转写队列，完成后会推送阅读卡片。");
+      }
+      if (act === "dismiss_episode") {
+        await api(`/api/subscription-episodes/${Number(value.id)}/dismiss`, "POST");
+        return await sendText(chatId, "已忽略这一集。改主意的话，原卡片上的「转写」仍然有效。");
       }
       if (act === "check_subscription") {
         await api(`/api/subscriptions/${Number(value.id)}/check`, "POST");
@@ -128,6 +150,14 @@ async function poll() {
       catch (error) { logError(`任务 ${job.id} 推送失败`, error); }
     }
   } catch (error) { logError("任务轮询失败", error); }
+  try {
+    for (const episode of await api("/api/subscription-episodes/awaiting?limit=50")) {
+      const key = `awaiting:${episode.id}`;
+      if (ledger.state.notifications[key]) continue;
+      try { await deliverNotification(channel, ledger, config.ownerOpenId, key, awaitingCard(episode)); }
+      catch (error) { logError(`待确认单集 ${episode.id} 推送失败`, error); }
+    }
+  } catch (error) { logError("待确认单集轮询失败", error); }
   finally { polling = false; }
 }
 
