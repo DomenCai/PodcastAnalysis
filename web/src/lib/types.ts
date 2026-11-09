@@ -23,6 +23,7 @@ export type Health = {
       remaining_seconds: number;
       cooldown_until: string | null;
     } | null;
+    deai?: { backend: "agy"; model: string; available: boolean } | null;
   };
   backends?: { qwen?: boolean; whisper: boolean; mimo: boolean };
 };

@@ -2,6 +2,16 @@
 
 当前项目位于 `Documents/PodcastWorkspace/PodcastAnalysis`，独立 ASR 项目为相邻 `whisper`。本清单记录改动与验证情况，提交状态以 Git 记录为准。
 
+## 2026-11-09：文章去 AI 味第二轮
+
+- 新增 `skills/lieflat-less-ai-tone/`，固定上游 `53160078`，原样保存 SKILL.md、DETECT.md、语义判据、detect.py、report.py 与 CC BY-NC 4.0 许可。新增 `prompts/de-ai-tone.md`：无人值守、视为已回复「按建议改」、只改 article.md、保护引语和原话、禁止只把顿号换成「和」的假改写、作者硬约束优先。
+- `server/analyzer.py` 在 generate 之后加 deai 阶段：程序跑检测，agy `gemini-4-argon-medium` 改写，程序校验标题、链接、数字、引语、破折号和字数，再跑机械校验；任何失败都发布第一轮原稿并记录原因。轮次指纹升到 v4。健康接口与前端类型增加 `analysis.deai`，`.env.example` 增加 `PODCAST_DEAI`、`PODCAST_DEAI_MODEL`。
+- `skills/podcast-to-article/` 本地修改两处，记录在其 UPSTREAM.md：style-rules 第一节改用 lieflat 第二轮配对数据并列出被推翻的旧规则；SKILL.md 第四步第六条补「不必每段都接上一段」。
+- 选型实测（Klook 一期，3,145 汉字）：Gemini 4 Argon high 813 秒改 13 处，medium 485 秒改 15 处，low 188 秒改 22 处但改动了逐字稿原话并丢掉「代价」一词。三档都把部分顿号并列机械改成「A、B 和 C」，提示词已禁止。记录在 `out/writing-tests/20261109-lieflat-agy/`。
+- 端到端实测（e8a6 一期）：正式代码路径 364 秒、约 10.5 万 token，改 5 处并通过校验，未出现顿号假改写。记录在 `out/writing-tests/20261109-deai-e2e/`。
+- 验证：后端 287 项、前端 9 项测试通过，前端构建通过。未重跑历史任务、未触发通知；`docs/operations.md` 原有未提交改动保留。
+- 2026-11-09 14:30 队列空闲时重启 manager 上线，健康检查通过，见运维说明。
+
 ## 2026-10-19：Codex 自动备用与一小时冷却
 
 - 默认 pi 一次 CLI 调用失败后立即切换 Codex `gpt-6.1-sol` / `high`，不依赖额度识别；输入保护、产物校验和本地文件错误仍直接报错。

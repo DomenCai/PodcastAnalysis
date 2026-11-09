@@ -23,6 +23,8 @@ def environment(monkeypatch, tmp_path):
                  'PODCAST_ANALYSIS_ATTEMPTS', 'PODCAST_AGY_MODEL'):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv('PODCAST_ANALYSIS_FALLBACK', 'none')
+    # The de-AI pass has dedicated tests in test_deai.py.
+    monkeypatch.setenv('PODCAST_DEAI', 'off')
     monkeypatch.setenv('PODCAST_DATA_DIR', str(tmp_path / 'data'))
     monkeypatch.setenv('CODEX_HOME', str(tmp_path / 'codex-home'))
     monkeypatch.setattr(analyzer, '_style_report', lambda *args: None)
@@ -485,7 +487,8 @@ def test_health_reports_selected_backend(monkeypatch):
     from server import app
     monkeypatch.setattr(app, 'capabilities', lambda: {})
     monkeypatch.setattr(app.shutil, 'which', lambda name: '/bin/' + name)
-    assert app.health()['analysis'] == {'backend': 'pi', 'model': 'kimi/k3', 'thinking': 'high', 'available': True, 'fallback': None}
+    assert app.health()['analysis'] == {'backend': 'pi', 'model': 'kimi/k3', 'thinking': 'high', 'available': True, 'fallback': None,
+                                         'deai': None}
     monkeypatch.setenv('PODCAST_ANALYSIS_BACKEND', 'agy')
     assert app.health()['analysis']['backend'] == 'agy'
     assert app.health()['analysis']['thinking'] is None

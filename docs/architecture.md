@@ -4,7 +4,7 @@
 
 PodcastAnalysis 的 `data/podcast.db` 保存订阅与发现的单集，`data/jobs/<id>` 保存手动或订阅任务及处理状态。历史结果复制到 `data/legacy-agy/`，数据库绝对路径在迁移时重写。原始音频和模型文件留在 whisper；可恢复的任务音频由各自服务管理。
 
-`server.analyzer` 管理输入快照、检查点、重试工作副本与发布；`server.analysis_runner` 负责 pi/Codex/agy 调用、终态解析与安全错误分类。默认 pi 的 kimi/k3（thinking high），调用失败后使用 Codex gpt-6.1-sol/high；`server.analysis_fallback` 原子保存服务级冷却状态到 `data/analysis-fallback.json`，固定 1 小时，跨任务与重启生效。期间直接使用 Codex，到期后的下一次调用再尝试 pi；Codex 失败不续期、不回切。校验与本地文件错误不触发备用。可通过 `PODCAST_ANALYSIS_BACKEND=agy` 选择 Gemini。三条路径用同一个固定版本 skill 和项目提示词，一次生成文章、笔记与导图并自检，不再叠加独立的 Gemini 核稿/Opus 润色。
+`server.analyzer` 管理输入快照、检查点、重试工作副本与发布；`server.analysis_runner` 负责 pi/Codex/agy 调用、终态解析与安全错误分类。默认 pi 的 kimi/k3（thinking high），调用失败后使用 Codex gpt-6.1-sol/high；`server.analysis_fallback` 原子保存服务级冷却状态到 `data/analysis-fallback.json`，固定 1 小时，跨任务与重启生效。期间直接使用 Codex，到期后的下一次调用再尝试 pi；Codex 失败不续期、不回切。校验与本地文件错误不触发备用。可通过 `PODCAST_ANALYSIS_BACKEND=agy` 选择 Gemini。三条路径用同一个固定版本 skill 和项目提示词，一次生成文章、笔记与导图并自检，不再叠加独立的 Gemini 核稿/Opus 润色。之后可选的去 AI 味第二轮固定走 agy Gemini，只改 article.md，存为独立的 deai 检查点；失败时发布第一轮原稿。轮次指纹 v4 包含去 AI 味模型、提示词和 lieflat 文件哈希。
 
 每次尝试使用全新的临时目录，复制逐字稿、元数据和 skill 及其参考文件。pi 只启用 read/write/edit/grep/find/ls，不加载其他扩展或项目指令；agy 保留 sandbox 和 accept-edits。Codex 工作副本位于仓库外，使用 workspace-write，继承 provider/认证并禁用本次调用的外部工具与 hooks；仅适配文件读写工具，保持写作约定。目录与提示词限制不等于操作系统文件沙箱。程序在调用结束后校验输入未变、产物为非空普通文件、时间戳/来源/声明/标题层级正确；安全保存检查点后才逐文件原子发布。
 

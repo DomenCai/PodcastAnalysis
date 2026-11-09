@@ -31,6 +31,13 @@ SKILL_FILES = ("SKILL.md", "references/style-rules.md", "references/example.md",
 ARTIFACT_NAMES = ("article.md", "notes.md", "mindmap.md")
 MAX_ARTIFACT_BYTES = 20 * 1024 * 1024
 RETRY_DELAY_SECONDS = 10.0
+# Second pass: lieflat-less-ai-tone rewrites article.md only, always on agy/Gemini.
+DEAI_PROMPT_PATH = ROOT / "prompts/de-ai-tone.md"
+DEAI_SKILL_PATH = ROOT / "skills/lieflat-less-ai-tone"
+DEAI_DOC_FILES = ("SKILL.md", "DETECT.md", "references/semantic-criteria.md")
+DEAI_SCRIPT_FILES = ("scripts/detect.py", "scripts/report.py")
+DEAI_DEFAULT_MODEL = "gemini-4-argon-medium"
+DEAI_HAN_RANGE = (0.95, 1.01)
 ProgressCallback = Callable[[str, int | None, int | None], None]
 
 
@@ -368,6 +375,154 @@ def _generate(run: Path, result_dir: Path, inputs: dict[str, bytes], prompt: str
         attempt += 1
 
 
+def deai_config(base: AnalysisConfig) -> AnalysisConfig | None:
+    switch = os.getenv("PODCAST_DEAI", "on").strip().lower()
+    if switch not in {"on", "off"}:
+        raise AnalysisError("PODCAST_DEAI 必须是 on 或 off", category="config")
+    if switch == "off":
+        return None
+    model = os.getenv("PODCAST_DEAI_MODEL", DEAI_DEFAULT_MODEL).strip()
+    if not model.startswith("gemini-"):
+        raise AnalysisError("PODCAST_DEAI_MODEL 必须选择 Gemini 模型", category="config")
+    return AnalysisConfig("agy", model, None, base.idle_timeout, base.attempts, 0, None)
+
+
+def _run_script(tools: Path, args: list[str]) -> bytes:
+    try:
+        result = subprocess.run([sys.executable, *args], cwd=tools, capture_output=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise AnalysisError("去 AI 味检测脚本无法运行", category="deai_script") from exc
+    if result.returncode != 0:
+        raise AnalysisError("去 AI 味检测脚本失败", category="deai_script")
+    return result.stdout
+
+
+_HAN = re.compile(r"[一-鿿]")
+_QUOTE = re.compile(r"「[^」]+」|“[^”]+”")
+_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+
+
+def _deai_guard(before: str, after: str) -> None:
+    """Reject rewrites that touch facts, structure or quotes; the pass may only polish wording."""
+    problems = []
+    headings = lambda text: [line for line in text.splitlines() if line.startswith("#")]
+    if headings(before) != headings(after):
+        problems.append("标题被修改")
+    if re.findall(r"\]\([^)]+\)", before) != re.findall(r"\]\([^)]+\)", after):
+        problems.append("链接被修改")
+    if sorted(_NUMBER.findall(before)) != sorted(_NUMBER.findall(after)):
+        problems.append("数字被修改")
+    if any(quote not in after for quote in _QUOTE.findall(before)):
+        problems.append("引语被修改")
+    if after.count("——") > before.count("——"):
+        problems.append("引入破折号")
+    ratio = len(_HAN.findall(after)) / max(1, len(_HAN.findall(before)))
+    if not DEAI_HAN_RANGE[0] <= ratio <= DEAI_HAN_RANGE[1]:
+        problems.append(f"字数变化过大（{ratio:.3f}）")
+    if problems:
+        raise AnalysisError("去 AI 味改写未通过校验；" + "；".join(problems), category="deai_guard")
+
+
+def _deai_attempt(run: Path, generated: Path, inputs: dict[str, bytes], deai_inputs: dict[str, bytes],
+                  prompt: str, config: AnalysisConfig, diagnostic: dict, record: Path) -> Path:
+    transcript = inputs["transcript.txt"].decode("utf-8")
+    episode = inputs["episode.md"].decode("utf-8")
+    before = _checked_bytes(generated / "article.md")
+    with tempfile.TemporaryDirectory(prefix="podcast-deai-", dir=run) as temp:
+        root = Path(temp).resolve()
+        tools, work, out = root / "tools", root / "work", root / "out"
+        files = {f".skills/lieflat-less-ai-tone/{name}": deai_inputs[name] for name in DEAI_DOC_FILES}
+        files[".skills/style-rules.md"] = inputs[".skills/podcast-to-article/references/style-rules.md"]
+        files["transcript.txt"] = inputs["transcript.txt"]
+        for folder, mapping in ((tools, {name: deai_inputs[name] for name in DEAI_SCRIPT_FILES}),
+                                (work, {**files, "article.md": before})):
+            for name, data in mapping.items():
+                target = folder / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(data)
+        out.mkdir()
+        detect = str(tools / "scripts/detect.py")
+        article = str(work / "article.md")
+        (out / "before.json").write_bytes(_run_script(tools, [detect, article, "--json"]))
+        files["detect-report.txt"] = _run_script(tools, [detect, article, "--max-hits", "50"])
+        (work / "detect-report.txt").write_bytes(files["detect-report.txt"])
+        _run_script(tools, [detect, article, "--candidates", "--out", str(work / "candidates.json")])
+        files["candidates.json"] = _checked_bytes(work / "candidates.json")
+        metadata = invoke(work, prompt, config, diagnostic, on_update=lambda: _json_write(record, diagnostic))
+        for name, data in files.items():
+            if _checked_bytes(work / name) != data:
+                raise AnalysisError(f"模型修改了输入 {name}，拒绝发布", category="input_modified")
+        after = _checked_bytes(work / "article.md")
+        _deai_guard(before.decode("utf-8"), after.decode("utf-8"))
+        staged = out / "artifacts"
+        staged.mkdir()
+        for name in ARTIFACT_NAMES:
+            (staged / name).write_bytes(after if name == "article.md" else _checked_bytes(generated / name))
+        _validate_content(staged, transcript, episode)
+        diagnostic["validated"] = True
+        # Reports are best effort: a broken report never blocks the validated rewrite.
+        reports = _directory(run / "deai-report")
+        try:
+            (out / "after.json").write_bytes(_run_script(tools, [detect, article, "--json"]))
+            original = out / "original.md"
+            original.write_bytes(before)
+            args = [str(tools / "scripts/report.py"), str(original), article,
+                    str(out / "before.json"), str(out / "after.json"), "--out", str(out / "report.md")]
+            labels = work / "semantic-labels.json"
+            if labels.is_file() and not labels.is_symlink():
+                json.loads(labels.read_bytes())
+                args += ["--semantic", str(labels)]
+            _run_script(tools, args)
+            _atomic_write(reports / "去AI味报告.md", _checked_bytes(out / "report.md"))
+        except (AnalysisError, ValueError):
+            pass
+        for name in ("changes.md", "semantic-labels.json"):
+            path = work / name
+            if path.is_file() and not path.is_symlink() and path.stat().st_size <= MAX_ARTIFACT_BYTES:
+                _atomic_write(reports / name, path.read_bytes())
+        metadata["outcome"] = "rewritten" if after != before else "unchanged"
+        return _save_checkpoint(run, "deai", staged, ARTIFACT_NAMES, metadata)
+
+
+def _deai(run: Path, generated: Path, inputs: dict[str, bytes], deai_inputs: dict[str, bytes],
+          prompt: str, config: AnalysisConfig) -> Path:
+    """Run the de-AI pass; on any failure publish the generated artifacts unchanged."""
+    diagnostics = _directory(run / "diagnostics")
+    attempt = 1
+    while True:
+        diagnostic = {
+            "version": 3, "stage": "deai", "attempt": attempt, "backend": config.backend,
+            "model": config.model, "thinking": None, "idle_timeout_seconds": config.idle_timeout,
+            "started_at": datetime.now(UTC).isoformat(), "outcome": "running", "exit_code": None,
+            "timed_out": False, "error_category": None, "retryable": False, "validated": False,
+        }
+        record = diagnostics / f"{uuid.uuid4().hex}.json"
+        _json_write(record, diagnostic)
+        started = time.monotonic()
+        failure: AnalysisError
+        try:
+            saved = _deai_attempt(run, generated, inputs, deai_inputs, prompt, config, diagnostic, record)
+            diagnostic["outcome"] = "success"
+            return saved
+        except AnalysisError as exc:
+            failure = exc
+            diagnostic.update(outcome="error", error_category=exc.category, retryable=exc.retryable)
+        except Exception as exc:  # optional polish must never block publication
+            failure = AnalysisError(f"去 AI 味本地错误：{type(exc).__name__}", category="local_error")
+            diagnostic.update(outcome="error", error_category="local_error", error_type=type(exc).__name__)
+        finally:
+            diagnostic.update(finished_at=datetime.now(UTC).isoformat(),
+                              elapsed_seconds=round(time.monotonic() - started, 3))
+            _json_write(record, diagnostic)
+        if failure.retryable and attempt < config.attempts:
+            time.sleep(RETRY_DELAY_SECONDS)
+            attempt += 1
+            continue
+        return _save_checkpoint(run, "deai", generated, ARTIFACT_NAMES, {
+            "backend": config.backend, "model": config.model,
+            "outcome": "fallback", "error_category": failure.category})
+
+
 def analyze(result_dir: Path, episode: dict[str, Any] | None = None, *,
             on_progress: ProgressCallback | None = None,
             executable: str | Path | None = None) -> None:
@@ -393,12 +548,22 @@ def _analyze(result_dir: Path, cache: Path, episode: dict | None, config: Analys
     inputs = {"transcript.txt": original, "episode.md": episode_bytes}
     for name in SKILL_FILES:
         inputs[f".skills/podcast-to-article/{name}"] = _checked_bytes(SKILL_PATH / name)
-    # v3 binds checkpoints to the primary model and its fallback policy.
+    deai = deai_config(config)
+    deai_prompt = ""
+    deai_inputs: dict[str, bytes] = {}
+    if deai is not None:
+        deai_prompt = _read_prompt(DEAI_PROMPT_PATH)
+        deai_inputs = {name: _checked_bytes(DEAI_SKILL_PATH / name)
+                       for name in (*DEAI_DOC_FILES, *DEAI_SCRIPT_FILES)}
+    # v3 binds checkpoints to the primary model and its fallback policy; v4 adds the de-AI pass.
     key = _digest(json.dumps({
-        "version": 3, "backend": config.backend, "model": config.model,
+        "version": 4, "backend": config.backend, "model": config.model,
         "fallback_backend": config.fallback_backend,
         "thinking": config.thinking, "prompt": prompt,
         "inputs": {name: _digest(data) for name, data in inputs.items()},
+        "deai": None if deai is None else {
+            "model": deai.model, "prompt": deai_prompt,
+            "inputs": {name: _digest(data) for name, data in deai_inputs.items()}},
     }, sort_keys=True).encode())
     state_path = cache / "state.json"
     state = {}
@@ -420,6 +585,10 @@ def _analyze(result_dir: Path, cache: Path, episode: dict | None, config: Analys
     if saved is None:
         saved = _generate(run, result_dir, inputs, prompt, config, executable)
     _validate_content(saved, original.decode("utf-8"), episode_bytes.decode("utf-8"))
+    if deai is not None:
+        saved = _checkpoint(run, "deai", ARTIFACT_NAMES) or _deai(
+            run, saved, inputs, deai_inputs, deai_prompt, deai)
+        _validate_content(saved, original.decode("utf-8"), episode_bytes.decode("utf-8"))
     backup = _directory(run / "before-publication")
     for name in (*ARTIFACT_NAMES, "episode.md"):
         path = result_dir / name

@@ -66,6 +66,7 @@ app = FastAPI(title="Podcast Notes — private", lifespan=lifespan)
 def health() -> dict:
     from server.analysis_runner import AnalysisConfig
     from server import analysis_fallback
+    from server.analyzer import deai_config
 
     analysis = AnalysisConfig.from_env()
     return {
@@ -82,6 +83,8 @@ def health() -> dict:
                           "available": bool(shutil.which("codex")),
                           "cooldown_seconds": analysis_fallback.COOLDOWN_SECONDS,
                           **analysis_fallback.cooldown_status()} if analysis.fallback_backend else None),
+            "deai": ({"backend": deai.backend, "model": deai.model, "available": bool(shutil.which("agy"))}
+                     if (deai := deai_config(analysis)) else None),
         },
         "subscriptions": True,
         "backends": capabilities(),

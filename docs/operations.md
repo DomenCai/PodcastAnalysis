@@ -18,6 +18,8 @@
 | `PODCAST_ANALYSIS_REMINDER_SECONDS` | `900` | pi 运行中收尾提醒间隔，0～86400 秒；0 关闭，agy/Codex 暂不支持 |
 | `PODCAST_ANALYSIS_ATTEMPTS` | `2` | 每个后端包括首次在内的总尝试次数，1～5；启用备用时 pi 首次调用失败立即切换 |
 | `PODCAST_AGY_MODEL` | `gemini-3.1-pro-high` | 仅 agy 使用的 Gemini 模型 |
+| `PODCAST_DEAI` | `on` | 文章去 AI 味第二轮；`off` 直接发布第一轮文章 |
+| `PODCAST_DEAI_MODEL` | `gemini-4-argon-medium` | 去 AI 味使用的 agy Gemini 模型，与主后端无关；空闲阈值和尝试次数沿用上面两项 |
 
 pi 固定指定 `kimi/k3` 和 `--thinking high`，继承当前用户 `~/.pi/agent` 中的配置；使用 `--no-session`、关闭扩展/其他 skill/上下文文件发现，仅显式加载本项目 skill 和文件工具。已用本机 pi 0.84.4 验证事件格式。agy 保留沙箱和文件工具权限约束；无头模式仍需要在用户设置中允许任务目录的文件读写，不能通过放开命令权限解决失败。
 
@@ -28,6 +30,10 @@ agy 使用 `--output-format stream-json --print-timeout 0`，步骤状态变化�
 项目不自动加载 `.env`。手动运行可用 `PODCAST_ANALYSIS_BACKEND=agy uv run --no-sync python -m server.app`。launchd 通过 `zsh -lc` 启动，需在 `~/.zshenv` 导出配置后，确认队列空闲，再执行 `.venv/bin/python -m scripts.services restart manager`。随后检查 `/api/health` 的 `analysis` 对象，默认应为 pi / kimi/k3 / high。不要同时启动第二个管理 worker。旧总时限 `PODCAST_ANALYSIS_TIMEOUT_SECONDS` 及 `WHISPER_AGY_TIMEOUT_SECONDS`、`WHISPER_AGY_ATTEMPTS`、`PODCAST_AGY_STYLE_EDIT` 已退役。
 
 三种后端统一使用 `skills/podcast-to-article/` 中原样保存的上游 skill，版本和许可见 UPSTREAM.md / LICENSE；生成规则由 `prompts/analysis.md` 补充无人值守、来源、文章覆盖、笔记和导图约定。项目提示词覆盖上游文章 2,500–3,000 汉字、5–8 节及按比例删字的要求，以主要议题、关键论据、代表性案例和限制条件的保留为先，篇幅随有效信息量决定。笔记定位为快速复习，提炼 5–7 条核心观点，以 800–1,200 汉字为目标，避免重复展开文章论述。一次模型调用完成三份产物并回查原文；程序随后运行文风报告与机械校验，不再额外调用 Gemini 核稿或 Opus。
+
+去 AI 味第二轮（2026-11-09 起默认开启）：第一轮产物通过校验并存为 generate 检查点后，程序用 `skills/lieflat-less-ai-tone/` 的 detect.py 生成检测报告和语义候选，再在新的临时目录调用 agy。模型只读 skill 文档、作者风格文件、检测结果和逐字稿，视为用户已回复「按建议改」，只改 article.md；笔记和导图沿用第一轮。程序随后校验输入未变、标题、链接、数字、引语不变、未引入破折号、汉字数在原稿 95%～101% 之间，再跑机械校验，通过后存为 deai 检查点。改写未过校验、模型失败或本地错误都不阻断发布，deai 检查点改为第一轮原稿并记录 `outcome: fallback` 与错误类别；瞬时网络错误按尝试次数重试。少于 500 汉字的文章检测脚本拒绝运行，直接沿用原稿。改动清单 changes.md、语义判读 semantic-labels.json 和前后对照 `去AI味报告.md` 保存在 `.analysis/<run>/deai-report/`，不公开。健康接口 `analysis.deai` 显示所用模型。lieflat 许可为 CC BY-NC 4.0，仅限非商业使用。
+
+2026-11-09 14:30（Asia/Shanghai）确认任务队列无进行中任务、订阅 pending/processing 均为 0 后，通过服务脚本重启 manager，去 AI 味上线。健康接口 `analysis.deai` 为 agy / gemini-4-argon-medium / available；管理、只读与 ASR（`/health`）均为 200，四个服务运行中，任务计数未变，未重跑历史任务。记录在 `out/maintenance-20261109-143045-activate-deai/`。轮次指纹升到 v4，之后重新分析的任务会从头生成。
 
 默认启用备用时，pi 一次 CLI 调用的任何失败（包括鉴权、超时、未知响应、启动失败）都立即切换到 Codex，不要求额度识别。冷却从该次失败开始计时，固定 3600 秒；状态原子保存到 `PODCAST_DATA_DIR/analysis-fallback.json`，重启仍有效。冷却期内任务直接走 Codex，到期后下一次任务尝试 pi；Codex 失败不会续期或回切。输入保护、产物校验、检查点和发布错误不属于请求失败，不触发备用。
 

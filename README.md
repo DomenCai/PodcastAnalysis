@@ -24,7 +24,7 @@ uv run --no-sync python -m server.public_app
 
 `./analysis <小宇宙单集链接或本地音频>` 通过管理 API 提交任务，`--backend mimo` 选择 MiMo，`--analyze-only <JOB_ID>` 仅重新生成文章。管理端只有一个任务 worker，订阅每 30 分钟检查一次。失败任务可重试，逐字稿完成后可只重新分析；处理成功会清理临时上传音频。
 
-分析后端由管理服务环境变量 `PODCAST_ANALYSIS_BACKEND=pi|codex|agy` 选择，默认 **pi / kimi/k3 / thinking high**；agy 使用 `PODCAST_AGY_MODEL=gemini-3.1-pro-high`。三种后端都直接使用固定版本的 [podcast-to-article skill](skills/podcast-to-article/UPSTREAM.md)，一次调用生成文章、笔记和思维导图并自检。文章按话题重组，保留主要议题、关键论据、代表性案例及限制条件，篇幅随有效信息量决定，覆盖上游固定字数和章节数量限制；笔记提炼 5–7 条核心观点，以 800–1,200 汉字为目标，避免重复展开文章论述；导图呈现关系，不只复刻文章目录。项目约定在 `prompts/analysis.md`，不再单独调用 Gemini 核稿或 Opus 润色。
+分析后端由管理服务环境变量 `PODCAST_ANALYSIS_BACKEND=pi|codex|agy` 选择，默认 **pi / kimi/k3 / thinking high**；agy 使用 `PODCAST_AGY_MODEL=gemini-3.1-pro-high`。三种后端都直接使用固定版本的 [podcast-to-article skill](skills/podcast-to-article/UPSTREAM.md)，一次调用生成文章、笔记和思维导图并自检。文章按话题重组，保留主要议题、关键论据、代表性案例及限制条件，篇幅随有效信息量决定，覆盖上游固定字数和章节数量限制；笔记提炼 5–7 条核心观点，以 800–1,200 汉字为目标，避免重复展开文章论述；导图呈现关系，不只复刻文章目录。项目约定在 `prompts/analysis.md`，不再单独调用 Gemini 核稿或 Opus 润色。文章生成后默认再跑一轮去 AI 味：程序运行固定版本的 [lieflat-less-ai-tone](skills/lieflat-less-ai-tone/UPSTREAM.md) 检测脚本，由 agy `gemini-4-argon-medium` 按 `prompts/de-ai-tone.md` 做最小改写，只改 article.md；改写未通过校验或调用失败时发布第一轮原稿。`PODCAST_DEAI=off` 关闭，`PODCAST_DEAI_MODEL` 换模型。
 
 分析没有总时长上限。`PODCAST_ANALYSIS_IDLE_TIMEOUT_SECONDS` 默认 1200 秒：连续没有模型输出、思考增量或工具活动才停止，设为 0 可关闭。pi 通过 RPC 接收 `PODCAST_ANALYSIS_REMINDER_SECONDS`（默认 900 秒，0 关闭）控制的收尾提醒，在当前工具轮次结束后送达；未消费的提醒最多排队一条。agy 和 Codex 使用流式事件监测空闲，目前不支持运行中催稿。日志、提醒回执和内部重试通知不会重置空闲计时。
 
